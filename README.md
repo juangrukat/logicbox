@@ -32,10 +32,30 @@ Run the built-in rule fixtures with:
 ./logicbox test
 ```
 
+`test` runs the ordinary fixtures, adversarial stress fixtures, exact gold models, and deterministic fuzz invariants.
+
 Run only the adversarial fixtures with:
 
 ```sh
 ./logicbox stress
+```
+
+Run exact positive/negative gold models with:
+
+```sh
+./logicbox gold
+```
+
+Run the named edge-case suites with:
+
+```sh
+./logicbox edge
+```
+
+Run generated invariant checks with:
+
+```sh
+./logicbox fuzz
 ```
 
 ## How To Use It
@@ -132,6 +152,14 @@ Propose a rewrite, extract rewrite facts, run ./logicbox mutation, and tell me w
 
 ```text
 Run ./logicbox stress and summarize which adversarial cases the kernel catches.
+```
+
+```text
+Run ./logicbox gold and ./logicbox fuzz, then summarize whether the reusable regression checks passed.
+```
+
+```text
+Run ./logicbox edge and summarize which edge-case families passed.
 ```
 
 ## Reasoning Plans
@@ -397,7 +425,7 @@ What changes after observing results: strategy, attention, effort allocation, or
 
 ## Stress Tests
 
-The test suite includes adversarial fixtures:
+The test suite includes ordinary fixtures, adversarial fixtures, gold models, and generated fuzz invariants:
 
 ```sh
 ./logicbox test
@@ -419,6 +447,44 @@ Expected stress behavior:
 - `stress-scope-leak-model.shen`: local/global definition drift is flagged.
 - `stress-stage-circular-model.shen`: short or circular stage chains remain incomplete.
 
+## Gold And Fuzz Tests
+
+Gold tests live in `tests/gold/`. Each `.shen` model has a matching `.expected` file. These are minimal positive/negative examples for specific flags, such as missing context, stage-chain length, scope conflict, conclusion strength, and precomputed flags.
+
+Run them with:
+
+```sh
+./logicbox gold
+```
+
+Edge-case suites live in `tests/edge/`. They are named fixtures for the five families most likely to break the kernel:
+
+- scope pathologies
+- stage/mechanism entanglement
+- context obligations
+- ground/conclusion/modality interactions
+- plan meta-structure
+
+Run them with:
+
+```sh
+./logicbox edge
+```
+
+Fuzz tests are generated temporarily by the `logicbox` script. They check invariants rather than exact stored models:
+
+- no scope conflict when all scopes are identical
+- stage-chain-too-short fires only below the requested minimum
+- known context does not trigger missing-context
+- stronger conclusions over weaker grounds are flagged
+- modality and scope rewrite mutations are detected
+
+Run them with:
+
+```sh
+./logicbox fuzz
+```
+
 ## Troubleshooting
 
 If `./logicbox check` returns `[]`, there may be no `[plan ...]` fact in the current model. Older fixtures without a plan can still produce ordinary flags, but only plans produce `[clear-enough ...]` or `[plan-incomplete ...]`.
@@ -436,10 +502,13 @@ Before uploading or sharing the folder:
 1. Run `./logicbox check`.
 2. Run `./logicbox mutation`.
 3. Run `./logicbox stress`.
-4. Run `./logicbox test`.
-5. Confirm no hidden Shen raw outputs are present in `output/`.
-6. Confirm `README.md` and `skill.md` are the only authoritative docs.
-7. Confirm the sample files in `work/` are safe to share.
+4. Run `./logicbox gold`.
+5. Run `./logicbox edge`.
+6. Run `./logicbox fuzz`.
+7. Run `./logicbox test`.
+8. Confirm no hidden Shen raw outputs are present in `output/`.
+9. Confirm `README.md` and `skill.md` are the only authoritative docs.
+10. Confirm the sample files in `work/` are safe to share.
 
 The upload-ready surface is:
 

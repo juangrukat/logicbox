@@ -54,8 +54,11 @@ When asked to check a rewrite:
 When asked to stress test the kernel:
 
 1. Run `./logicbox stress`.
-2. Confirm that adversarial fixtures are caught.
-3. If a fixture unexpectedly returns `[clear-enough ...]`, treat that as a kernel bug.
+2. Run `./logicbox gold`.
+3. Run `./logicbox edge`.
+4. Run `./logicbox fuzz`.
+5. Confirm that adversarial fixtures, gold models, edge suites, and generated invariants are caught.
+6. If a fixture unexpectedly returns `[clear-enough ...]`, treat that as a kernel bug.
 
 ## Roles
 
@@ -380,10 +383,29 @@ Compares current facts with rewrite facts and writes mutation output to `output/
 Runs adversarial fixtures. Use this after kernel changes.
 
 ```sh
+./logicbox gold
+```
+
+Runs exact positive/negative model checks from `tests/gold/`.
+
+```sh
+./logicbox edge
+```
+
+Runs named edge-case suites from `tests/edge/`, covering scope pathologies, stage/mechanism entanglement, context obligations, ground/conclusion/modality interactions, and plan meta-structure.
+
+```sh
+./logicbox fuzz
+```
+
+Generates temporary fact models and checks kernel invariants.
+
+```sh
 ./logicbox test
 ```
 
-Runs all fixtures, including ordinary checks and stress checks.
+Runs ordinary checks, stress checks, gold checks, and fuzz checks.
+The test command also includes the edge suite.
 
 ## User-Facing Explanation
 

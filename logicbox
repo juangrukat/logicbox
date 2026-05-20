@@ -17,6 +17,9 @@ Usage:
   ./logicbox mutation
   ./logicbox test
   ./logicbox stress
+  ./logicbox gold
+  ./logicbox edge
+  ./logicbox fuzz
   ./logicbox new "Your draft claim here"
   ./logicbox show
 
@@ -45,6 +48,44 @@ capture_logicbox_output() {
     /^LOGICBOX-END$/ {capture=0; exit}
     capture && $0 !~ /^"/ && $0 != "ok" {print}
   ' "$raw" > "$dest"
+}
+
+run_check_model() {
+  local model="$1"
+  local raw="$2"
+  local out="$3"
+  "$SHEN" \
+    -l "$model" \
+    -l "$ROOT/shen/rules.shen" \
+    -l "$ROOT/shen/run.shen" \
+    > "$raw"
+  capture_logicbox_output "$raw" "$out"
+}
+
+assert_line() {
+  local file="$1"
+  local expected="$2"
+  local label="$3"
+  if ! grep -Fxq "$expected" "$file"; then
+    echo "FAIL $label"
+    echo "  expected line: $expected"
+    echo "  actual output:"
+    sed 's/^/    /' "$file"
+    return 1
+  fi
+}
+
+assert_no_text() {
+  local file="$1"
+  local forbidden="$2"
+  local label="$3"
+  if grep -Fq "$forbidden" "$file"; then
+    echo "FAIL $label"
+    echo "  forbidden text: $forbidden"
+    echo "  actual output:"
+    sed 's/^/    /' "$file"
+    return 1
+  fi
 }
 
 case "${1:-help}" in
@@ -95,6 +136,12 @@ case "${1:-help}" in
       ' "$OUT/.shen-test-raw-output.txt"
       echo
     done
+    echo "gold:"
+    "$0" gold
+    echo "edge:"
+    "$0" edge
+    echo "fuzz:"
+    "$0" fuzz
     ;;
   stress)
     ensure_dirs
@@ -109,6 +156,248 @@ case "${1:-help}" in
       cat "$OUT/.shen-stress-output.txt"
       echo
     done
+    ;;
+  gold)
+    ensure_dirs
+    failures=0
+    for model in "$ROOT"/tests/gold/*.shen(N); do
+      expected="${model:r}.expected"
+      out="$OUT/.shen-gold-output.txt"
+      raw="$OUT/.shen-gold-raw-output.txt"
+      echo "${model:t}:"
+      run_check_model "$model" "$raw" "$out"
+      if [[ ! -f "$expected" ]]; then
+        echo "FAIL missing expected file: $expected"
+        failures=$((failures + 1))
+      elif ! diff -u "$expected" "$out"; then
+        failures=$((failures + 1))
+      else
+        echo "ok"
+      fi
+      echo
+    done
+    if [[ $failures -gt 0 ]]; then
+      echo "$failures gold test(s) failed." >&2
+      exit 1
+    fi
+    ;;
+  edge)
+    ensure_dirs
+    failures=0
+    for model in "$ROOT"/tests/edge/*.shen(N); do
+      expected="${model:r}.expected"
+      out="$OUT/.shen-edge-output.txt"
+      raw="$OUT/.shen-edge-raw-output.txt"
+      echo "${model:t}:"
+      run_check_model "$model" "$raw" "$out"
+      if [[ ! -f "$expected" ]]; then
+        echo "FAIL missing expected file: $expected"
+        failures=$((failures + 1))
+      elif ! diff -u "$expected" "$out"; then
+        failures=$((failures + 1))
+      else
+        echo "ok"
+      fi
+      echo
+    done
+    if [[ $failures -gt 0 ]]; then
+      echo "$failures edge test(s) failed." >&2
+      exit 1
+    fi
+    ;;
+  fuzz)
+    ensure_dirs
+    tmpdir="$(mktemp -d /tmp/logicbox-fuzz.XXXXXX)"
+    trap 'rm -rf "$tmpdir"' EXIT
+    failures=0
+
+    run_fuzz() {
+      local name="$1"
+      local model="$tmpdir/$name.shen"
+      local out="$tmpdir/$name.out"
+      local raw="$tmpdir/$name.raw"
+      shift
+      "$@" > "$model"
+      run_check_model "$model" "$raw" "$out"
+      print -r -- "$out"
+    }
+
+    write_scope_same_model() {
+      cat <<'EOF'
+(set *facts*
+  [
+    [plan p1]
+    [plan-source p1 fuzz]
+    [plan-goal p1 invariant-check]
+    [plan-fact p1 f1]
+    [plan-fact p1 f2]
+    [fact-scope f1 local]
+    [fact-scope f2 local]
+    [scope-conflict-candidate f1 f2]
+    [scope-incompatible global local]
+  ])
+EOF
+    }
+
+    write_stage_model() {
+      local count="$1"
+      {
+        print "(set *facts*"
+        print "  ["
+        print "    [plan p1]"
+        print "    [plan-source p1 fuzz]"
+        print "    [plan-goal p1 stage-chain]"
+        print "    [term source known]"
+        print "    [term target known]"
+        print "    [claim c1 causal source target]"
+        print "    [mechanism c1 bridge]"
+        print "    [modality c1 possible]"
+        print "    [scope c1 conditional]"
+        print "    [stage-chain-min c1 3]"
+        if [[ "$count" -gt 0 ]]; then
+          for i in $(seq 1 "$count"); do
+            print "    [stage s$i step-$i]"
+            print "    [stage-of s$i c1]"
+            print "    [stage-order s$i $i]"
+          done
+        fi
+        print "  ])"
+      }
+    }
+
+    write_context_model() {
+      local state="$1"
+      cat <<EOF
+(set *facts*
+  [
+    [plan p1]
+    [plan-source p1 fuzz]
+    [plan-goal p1 context-obligation]
+    [term feedback known]
+    [term improvement known]
+    [claim c1 causal feedback improvement]
+    [mechanism c1 learning]
+    [modality c1 possible]
+    [scope c1 conditional]
+    [context-required c1 feedback-reliable]
+    [context-known feedback-reliable $state]
+  ])
+EOF
+    }
+
+    write_ground_model() {
+      local conclusion_modality="$1"
+      cat <<EOF
+(set *facts*
+  [
+    [plan p1]
+    [plan-source p1 fuzz]
+    [plan-goal p1 ground-strength]
+    [ground-claim g1 source support]
+    [modality g1 probable]
+    [conclusion k1 target]
+    [modality k1 $conclusion_modality]
+    [infers-to g1 k1]
+    [stronger-than certain probable]
+  ])
+EOF
+    }
+
+    write_mutation_model() {
+      local mutation="$1"
+      case "$mutation" in
+        modality)
+          cat <<'EOF'
+(set *facts*
+  [
+    [plan p1]
+    [claim c1 causal source target]
+    [mechanism c1 bridge]
+    [modality c1 possible]
+    [scope c1 conditional]
+    [rewrite-claim r1 causal source target]
+    [rewrite-modality r1 certain]
+    [rewrite-scope r1 conditional]
+    [stronger-than certain possible]
+  ])
+EOF
+          ;;
+        scope)
+          cat <<'EOF'
+(set *facts*
+  [
+    [plan p1]
+    [claim c1 causal source target]
+    [mechanism c1 bridge]
+    [modality c1 possible]
+    [scope c1 conditional]
+    [rewrite-claim r1 causal source target]
+    [rewrite-modality r1 possible]
+    [rewrite-scope r1 universal]
+    [stronger-than universal conditional]
+  ])
+EOF
+          ;;
+      esac
+    }
+
+    echo "fuzz-scope-identical:"
+    out="$(run_fuzz scope-identical write_scope_same_model)"
+    assert_line "$out" "[clear-enough p1]" "identical scopes should be clear" || failures=$((failures + 1))
+    assert_no_text "$out" "[scope-conflict" "identical scopes should not conflict" || failures=$((failures + 1))
+
+    for count in 0 1 2 3 4; do
+      echo "fuzz-stage-count-$count:"
+      out="$(run_fuzz stage-count-$count write_stage_model "$count")"
+      if [[ "$count" -lt 3 ]]; then
+        assert_line "$out" "[stage-chain-too-short c1 $count 3]" "stage count $count should be too short" || failures=$((failures + 1))
+        assert_line "$out" "[plan-incomplete p1]" "short stage count should be incomplete" || failures=$((failures + 1))
+      else
+        assert_no_text "$out" "[stage-chain-too-short" "stage count $count should not be too short" || failures=$((failures + 1))
+        assert_line "$out" "[clear-enough p1]" "stage count $count should be clear" || failures=$((failures + 1))
+      fi
+    done
+
+    for state in known unknown; do
+      echo "fuzz-context-$state:"
+      out="$(run_fuzz context-$state write_context_model "$state")"
+      if [[ "$state" == "unknown" ]]; then
+        assert_line "$out" "[missing-context c1 feedback-reliable]" "unknown context should be missing" || failures=$((failures + 1))
+      else
+        assert_no_text "$out" "[missing-context" "known context should not be missing" || failures=$((failures + 1))
+        assert_line "$out" "[clear-enough p1]" "known context should be clear" || failures=$((failures + 1))
+      fi
+    done
+
+    for modality in probable certain; do
+      echo "fuzz-ground-$modality:"
+      out="$(run_fuzz ground-$modality write_ground_model "$modality")"
+      if [[ "$modality" == "certain" ]]; then
+        assert_line "$out" "[conclusion-stronger-than-ground g1 k1 probable certain]" "certain conclusion should outrun probable ground" || failures=$((failures + 1))
+      else
+        assert_no_text "$out" "[conclusion-stronger-than-ground" "matching modality should not outrun ground" || failures=$((failures + 1))
+        assert_line "$out" "[clear-enough p1]" "matching modality should be clear" || failures=$((failures + 1))
+      fi
+    done
+
+    for mutation in modality scope; do
+      echo "fuzz-mutation-$mutation:"
+      out="$(run_fuzz mutation-$mutation write_mutation_model "$mutation")"
+      case "$mutation" in
+        modality)
+          assert_line "$out" "[modality-mutation c1 r1 possible certain]" "modality mutation should be caught" || failures=$((failures + 1))
+          ;;
+        scope)
+          assert_line "$out" "[scope-mutation c1 r1 conditional universal]" "scope mutation should be caught" || failures=$((failures + 1))
+          ;;
+      esac
+    done
+
+    if [[ $failures -gt 0 ]]; then
+      echo "$failures fuzz invariant(s) failed." >&2
+      exit 1
+    fi
+    echo "All fuzz invariants passed."
     ;;
   new)
     ensure_dirs

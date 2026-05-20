@@ -1,0 +1,20 @@
+(set *facts*
+  [
+    [plan p1]
+    [plan-source p1 edge-stage]
+    [plan-goal p1 bridge-missing-obvious]
+    [term source known]
+    [term target known]
+    [claim c1 causal source target]
+    [mechanism c1 bridge]
+    [modality c1 possible]
+    [scope c1 conditional]
+    [stage-chain-min c1 2]
+    [stage s1 collect-data]
+    [stage-of s1 c1]
+    [stage-order s1 1]
+    [stage s2 policy-change]
+    [stage-of s2 c1]
+    [stage-order s2 2]
+    [stage-next c1 s1 s2]
+  ])

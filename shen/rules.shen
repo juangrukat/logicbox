@@ -45,6 +45,13 @@
   Ctx [[context-known Ctx known] | _] -> true
   Ctx [_ | Rest] -> (context-known-positive? Ctx Rest))
 
+(define valid-scope?
+  local -> true
+  section -> true
+  document -> true
+  global -> true
+  _ -> false)
+
 (define context-missing?
   Ctx Facts -> (if (context-known-positive? Ctx Facts) false true))
 
@@ -64,6 +71,17 @@
   S1 S2 [[scope-incompatible S2 S1] | _] -> true
   S1 S2 [_ | Rest] -> (scope-incompatible? S1 S2 Rest))
 
+(define context-incompatible?
+  C1 C2 [] -> false
+  C1 C2 [[context-incompatible C1 C2] | _] -> true
+  C1 C2 [[context-incompatible C2 C1] | _] -> true
+  C1 C2 [_ | Rest] -> (context-incompatible? C1 C2 Rest))
+
+(define scope-transition-invalid?
+  From To [] -> false
+  From To [[scope-transition-invalid From To] | _] -> true
+  From To [_ | Rest] -> (scope-transition-invalid? From To Rest))
+
 (define ground-known?
   G [] -> false
   G [[ground-claim G unknown unknown] | _] -> false
@@ -74,6 +92,7 @@
 (define conclusion-supported?
   K [] Facts -> false
   K [[infers-to G K] | _] Facts -> (if (ground-known? G Facts) true false)
+  K [[supports _ K] | _] Facts -> true
   K [_ | Rest] Facts -> (conclusion-supported? K Rest Facts))
 
 (define count-stages-of
@@ -85,6 +104,71 @@
   S1 S2 [] -> false
   S1 S2 [[stage-bridge S1 S2 _] | _] -> true
   S1 S2 [_ | Rest] -> (stage-bridge-known? S1 S2 Rest))
+
+(define plan-membership-mode?
+  [] -> false
+  [[plan-claim _ _] | _] -> true
+  [[plan-ground _ _] | _] -> true
+  [[plan-conclusion _ _] | _] -> true
+  [_ | Rest] -> (plan-membership-mode? Rest))
+
+(define claim-belongs-to-plan?
+  P C [] -> false
+  P C [[plan-claim P C] | _] -> true
+  P C [_ | Rest] -> (claim-belongs-to-plan? P C Rest))
+
+(define ground-belongs-to-plan?
+  P G [] -> false
+  P G [[plan-ground P G] | _] -> true
+  P G [_ | Rest] -> (ground-belongs-to-plan? P G Rest))
+
+(define conclusion-belongs-to-plan?
+  P K [] -> false
+  P K [[plan-conclusion P K] | _] -> true
+  P K [_ | Rest] -> (conclusion-belongs-to-plan? P K Rest))
+
+(define fact-belongs-to-plan?
+  P F [] -> false
+  P F [[plan-fact P F] | _] -> true
+  P F [_ | Rest] -> (fact-belongs-to-plan? P F Rest))
+
+(define plan-flag?
+  P [precomputed-flag clear-enough P] Facts -> true
+  P [precomputed-flag plan-incomplete P] Facts -> true
+  P [precomputed-flag missing-mechanism C] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [precomputed-flag missing-context C _] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [undefined-term X] Facts -> false
+  P [missing-mechanism C] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [unclear-modality C] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [unclear-scope C] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [mechanism-restates-source C _ _] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [mechanism-restates-target C _ _] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [mechanism-too-abstract C _] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [missing-context C _] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [context-conflict C1 C2] Facts -> true
+  P [context-scope-leak C _ _ _] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [conclusion-stronger-than-premises C K _ _] Facts -> (if (claim-belongs-to-plan? P C Facts) true (conclusion-belongs-to-plan? P K Facts))
+  P [conclusion-stronger-than-ground G K _ _] Facts -> (if (ground-belongs-to-plan? P G Facts) true (conclusion-belongs-to-plan? P K Facts))
+  P [claim-without-ground K] Facts -> (conclusion-belongs-to-plan? P K Facts)
+  P [stage-chain-too-short C _ _] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [stage-restates-claim C _ _ _] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [mechanism-restates-stage C _ _ _] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [missing-stage-bridge C _ _] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [scope-missing F] Facts -> (fact-belongs-to-plan? P F Facts)
+  P [invalid-scope F _] Facts -> (fact-belongs-to-plan? P F Facts)
+  P [scope-conflict F1 F2 _ _] Facts -> (if (fact-belongs-to-plan? P F1 Facts) true (fact-belongs-to-plan? P F2 Facts))
+  P [scope-transition-conflict F _ _] Facts -> (fact-belongs-to-plan? P F Facts)
+  P [global-term-redefined-locally _ F1 F2] Facts -> (if (fact-belongs-to-plan? P F1 Facts) true (fact-belongs-to-plan? P F2 Facts))
+  P [shadowed-support G _ _] Facts -> (ground-belongs-to-plan? P G Facts)
+  P [modality-mutation C _ _ _] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [scope-mutation C _ _ _] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [source-mutation C _ _ _] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [target-mutation C _ _ _] Facts -> (claim-belongs-to-plan? P C Facts)
+  P _ Facts -> false)
+
+(define plan-has-flag?
+  P [] Facts -> false
+  P [Flag | Rest] Facts -> (if (plan-flag? P Flag Facts) true (plan-has-flag? P Rest Facts)))
 
 (define no-flags?
   [] -> true
@@ -121,8 +205,13 @@
   [[mechanism-restates-stage C S M Label] | Rest] -> [[precomputed-flag mechanism-restates-stage C S M Label] | (collect-precomputed-flags Rest)]
   [[missing-stage-bridge C S1 S2] | Rest] -> [[precomputed-flag missing-stage-bridge C S1 S2] | (collect-precomputed-flags Rest)]
   [[scope-missing F] | Rest] -> [[precomputed-flag scope-missing F] | (collect-precomputed-flags Rest)]
+  [[invalid-scope F S] | Rest] -> [[precomputed-flag invalid-scope F S] | (collect-precomputed-flags Rest)]
   [[scope-conflict F1 F2 S1 S2] | Rest] -> [[precomputed-flag scope-conflict F1 F2 S1 S2] | (collect-precomputed-flags Rest)]
+  [[scope-transition-conflict F S1 S2] | Rest] -> [[precomputed-flag scope-transition-conflict F S1 S2] | (collect-precomputed-flags Rest)]
   [[global-term-redefined-locally Term F1 F2] | Rest] -> [[precomputed-flag global-term-redefined-locally Term F1 F2] | (collect-precomputed-flags Rest)]
+  [[shadowed-support G F1 F2] | Rest] -> [[precomputed-flag shadowed-support G F1 F2] | (collect-precomputed-flags Rest)]
+  [[context-conflict C1 C2] | Rest] -> [[precomputed-flag context-conflict C1 C2] | (collect-precomputed-flags Rest)]
+  [[context-scope-leak C Ctx S1 S2] | Rest] -> [[precomputed-flag context-scope-leak C Ctx S1 S2] | (collect-precomputed-flags Rest)]
   [[modality-mutation C R Old New] | Rest] -> [[precomputed-flag modality-mutation C R Old New] | (collect-precomputed-flags Rest)]
   [[scope-mutation C R Old New] | Rest] -> [[precomputed-flag scope-mutation C R Old New] | (collect-precomputed-flags Rest)]
   [[source-mutation C R Old New] | Rest] -> [[precomputed-flag source-mutation C R Old New] | (collect-precomputed-flags Rest)]
@@ -204,6 +293,34 @@
 
 (define collect-missing-context
   Facts -> (collect-missing-context-h Facts Facts))
+
+(define collect-context-conflicts-h
+  [] Facts -> []
+  [[context-incompatible C1 C2] | Rest] Facts -> (if (context-known-positive? C1 Facts)
+                                                  (if (context-known-positive? C2 Facts)
+                                                   [[context-conflict C1 C2] | (collect-context-conflicts-h Rest Facts)]
+                                                   (collect-context-conflicts-h Rest Facts))
+                                                  (collect-context-conflicts-h Rest Facts))
+  [_ | Rest] Facts -> (collect-context-conflicts-h Rest Facts))
+
+(define collect-context-conflicts
+  Facts -> (collect-context-conflicts-h Facts Facts))
+
+(define collect-context-scope-leaks-h
+  [] Facts -> []
+  [[context-required-scope C Ctx RequiredScope] | Rest] Facts -> (append (collect-context-scope-leaks-for C Ctx RequiredScope Facts Facts)
+                                                                         (collect-context-scope-leaks-h Rest Facts))
+  [_ | Rest] Facts -> (collect-context-scope-leaks-h Rest Facts))
+
+(define collect-context-scope-leaks-for
+  C Ctx RequiredScope [] Facts -> []
+  C Ctx RequiredScope [[context-scope Ctx ActualScope] | Rest] Facts -> (if (scope-incompatible? ActualScope RequiredScope Facts)
+                                                                          [[context-scope-leak C Ctx ActualScope RequiredScope] | (collect-context-scope-leaks-for C Ctx RequiredScope Rest Facts)]
+                                                                          (collect-context-scope-leaks-for C Ctx RequiredScope Rest Facts))
+  C Ctx RequiredScope [_ | Rest] Facts -> (collect-context-scope-leaks-for C Ctx RequiredScope Rest Facts))
+
+(define collect-context-scope-leaks
+  Facts -> (collect-context-scope-leaks-h Facts Facts))
 
 (define collect-conclusion-stronger-than-premises-h
   [] Facts -> []
@@ -336,6 +453,13 @@
 (define collect-scope-missing
   Facts -> (collect-scope-missing-h Facts Facts))
 
+(define collect-invalid-scopes
+  [] -> []
+  [[fact-scope F Scope] | Rest] -> (if (valid-scope? Scope)
+                                     (collect-invalid-scopes Rest)
+                                     [[invalid-scope F Scope] | (collect-invalid-scopes Rest)])
+  [_ | Rest] -> (collect-invalid-scopes Rest))
+
 (define collect-scope-conflicts-h
   [] Facts -> []
   [[scope-conflict-candidate F1 F2] | Rest] Facts -> (append (collect-scope-conflict-scope1 F1 F2 Facts Facts)
@@ -358,6 +482,16 @@
 (define collect-scope-conflicts
   Facts -> (collect-scope-conflicts-h Facts Facts))
 
+(define collect-scope-transition-conflicts-h
+  [] Facts -> []
+  [[scope-transition F From To] | Rest] Facts -> (if (scope-transition-invalid? From To Facts)
+                                                   [[scope-transition-conflict F From To] | (collect-scope-transition-conflicts-h Rest Facts)]
+                                                   (collect-scope-transition-conflicts-h Rest Facts))
+  [_ | Rest] Facts -> (collect-scope-transition-conflicts-h Rest Facts))
+
+(define collect-scope-transition-conflicts
+  Facts -> (collect-scope-transition-conflicts-h Facts Facts))
+
 (define collect-global-term-redefined-locally-h
   [] Facts -> []
   [[term-definition F1 Term] | Rest] Facts -> (append (collect-global-term-redefined-locally-for F1 Term Facts Facts)
@@ -377,6 +511,20 @@
 
 (define collect-global-term-redefined-locally
   Facts -> (collect-global-term-redefined-locally-h Facts Facts))
+
+(define collect-shadowed-support-h
+  [] Facts -> []
+  [[ground-uses-definition G GlobalFact] | Rest] Facts -> (append (collect-shadowed-support-for G GlobalFact Facts Facts)
+                                                                  (collect-shadowed-support-h Rest Facts))
+  [_ | Rest] Facts -> (collect-shadowed-support-h Rest Facts))
+
+(define collect-shadowed-support-for
+  G GlobalFact [] Facts -> []
+  G GlobalFact [[local-definition-overrides GlobalFact LocalFact] | Rest] Facts -> [[shadowed-support G GlobalFact LocalFact] | (collect-shadowed-support-for G GlobalFact Rest Facts)]
+  G GlobalFact [_ | Rest] Facts -> (collect-shadowed-support-for G GlobalFact Rest Facts))
+
+(define collect-shadowed-support
+  Facts -> (collect-shadowed-support-h Facts Facts))
 
 (define collect-modality-mutations-h
   [] Facts -> []
@@ -452,6 +600,8 @@
            (append (collect-mechanism-restates-target Facts)
            (append (collect-mechanism-too-abstract Facts)
            (append (collect-missing-context Facts)
+           (append (collect-context-conflicts Facts)
+           (append (collect-context-scope-leaks Facts)
            (append (collect-conclusion-stronger-than-premises Facts)
            (append (collect-conclusion-stronger-than-ground Facts)
            (append (collect-claims-without-ground Facts)
@@ -460,18 +610,25 @@
            (append (collect-mechanism-restates-stage Facts)
            (append (collect-missing-stage-bridges Facts)
            (append (collect-scope-missing Facts)
+           (append (collect-invalid-scopes Facts)
            (append (collect-scope-conflicts Facts)
+           (append (collect-scope-transition-conflicts Facts)
            (append (collect-global-term-redefined-locally Facts)
+           (append (collect-shadowed-support Facts)
            (append (collect-modality-mutations Facts)
            (append (collect-scope-mutations Facts)
            (append (collect-source-mutations Facts)
-                   (collect-target-mutations Facts))))))))))))))))))))))))
+                   (collect-target-mutations Facts)))))))))))))))))))))))))))))
 
 (define collect-plan-status-h
   [] Facts -> []
-  [[plan P] | Rest] Facts -> (if (no-flags? (blocking-flags Facts))
-                               [[clear-enough P] | (collect-plan-status-h Rest Facts)]
-                               [[plan-incomplete P] | (collect-plan-status-h Rest Facts)])
+  [[plan P] | Rest] Facts -> (if (plan-membership-mode? Facts)
+                               (if (plan-has-flag? P (blocking-flags Facts) Facts)
+                                [[plan-incomplete P] | (collect-plan-status-h Rest Facts)]
+                                [[clear-enough P] | (collect-plan-status-h Rest Facts)])
+                               (if (no-flags? (blocking-flags Facts))
+                                [[clear-enough P] | (collect-plan-status-h Rest Facts)]
+                                [[plan-incomplete P] | (collect-plan-status-h Rest Facts)]))
   [_ | Rest] Facts -> (collect-plan-status-h Rest Facts))
 
 (define collect-plan-status
