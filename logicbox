@@ -1,0 +1,169 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+ROOT="${0:A:h}"
+SHEN="${SHEN_SBCL:-/opt/homebrew/bin/shen-sbcl}"
+WORK="$ROOT/work"
+OUT="$ROOT/output"
+FACTS="$WORK/ai-facts.shen"
+REWRITE_FACTS="$WORK/rewrite-facts.shen"
+
+usage() {
+  cat <<'EOF'
+LogicBox
+
+Usage:
+  ./logicbox check
+  ./logicbox mutation
+  ./logicbox test
+  ./logicbox stress
+  ./logicbox new "Your draft claim here"
+  ./logicbox show
+
+Workflow:
+  1. Put prose in work/draft.txt.
+  2. Put AI-proposed symbolic facts in work/ai-facts.shen.
+  3. Run ./logicbox check.
+  4. Read output/shen-output.txt.
+
+For rewrite checks, put rewrite-derived facts in work/rewrite-facts.shen
+and run ./logicbox mutation.
+
+The checker is Shen. The wrapper only runs Shen and saves output.
+EOF
+}
+
+ensure_dirs() {
+  mkdir -p "$WORK" "$OUT"
+}
+
+capture_logicbox_output() {
+  local raw="$1"
+  local dest="$2"
+  awk '
+    /^LOGICBOX-BEGIN$/ {capture=1; next}
+    /^LOGICBOX-END$/ {capture=0; exit}
+    capture && $0 !~ /^"/ && $0 != "ok" {print}
+  ' "$raw" > "$dest"
+}
+
+case "${1:-help}" in
+  check)
+    ensure_dirs
+    if [[ ! -x "$SHEN" ]]; then
+      echo "Could not find shen-sbcl at: $SHEN" >&2
+      echo "Set SHEN_SBCL=/path/to/shen-sbcl and try again." >&2
+      exit 1
+    fi
+    "$SHEN" \
+      -l "$FACTS" \
+      -l "$ROOT/shen/rules.shen" \
+      -l "$ROOT/shen/run.shen" \
+      > "$OUT/.shen-raw-output.txt"
+    capture_logicbox_output "$OUT/.shen-raw-output.txt" "$OUT/shen-output.txt"
+    cat "$OUT/shen-output.txt"
+    ;;
+  mutation)
+    ensure_dirs
+    if [[ ! -x "$SHEN" ]]; then
+      echo "Could not find shen-sbcl at: $SHEN" >&2
+      echo "Set SHEN_SBCL=/path/to/shen-sbcl and try again." >&2
+      exit 1
+    fi
+    "$SHEN" \
+      -l "$FACTS" \
+      -l "$REWRITE_FACTS" \
+      -l "$ROOT/shen/rules.shen" \
+      -l "$ROOT/shen/run-mutation.shen" \
+      > "$OUT/.shen-mutation-raw-output.txt"
+    capture_logicbox_output "$OUT/.shen-mutation-raw-output.txt" "$OUT/mutation-output.txt"
+    cat "$OUT/mutation-output.txt"
+    ;;
+  test)
+    ensure_dirs
+    for model in "$ROOT"/tests/*-model.shen; do
+      echo "${model:t}:"
+      "$SHEN" \
+        -l "$model" \
+        -l "$ROOT/shen/rules.shen" \
+        -l "$ROOT/shen/run.shen" \
+        > "$OUT/.shen-test-raw-output.txt"
+      awk '
+        /^LOGICBOX-BEGIN$/ {capture=1; next}
+        /^LOGICBOX-END$/ {capture=0; exit}
+        capture && $0 !~ /^"/ && $0 != "ok" {print}
+      ' "$OUT/.shen-test-raw-output.txt"
+      echo
+    done
+    ;;
+  stress)
+    ensure_dirs
+    for model in "$ROOT"/tests/stress-*-model.shen; do
+      echo "${model:t}:"
+      "$SHEN" \
+        -l "$model" \
+        -l "$ROOT/shen/rules.shen" \
+        -l "$ROOT/shen/run.shen" \
+        > "$OUT/.shen-stress-raw-output.txt"
+      capture_logicbox_output "$OUT/.shen-stress-raw-output.txt" "$OUT/.shen-stress-output.txt"
+      cat "$OUT/.shen-stress-output.txt"
+      echo
+    done
+    ;;
+  new)
+    ensure_dirs
+    shift || true
+    if [[ $# -eq 0 ]]; then
+      echo "Please provide the draft text." >&2
+      exit 1
+    fi
+    printf '%s\n' "$*" > "$WORK/draft.txt"
+    cat > "$FACTS" <<'EOF'
+\\ AI fills this with candidate facts. Do not put derived flags here.
+\\ Run ./logicbox check after editing.
+
+(set *facts*
+  [
+    [plan p1]
+    [plan-source p1 draft-1]
+    [plan-goal p1 clarify-argument]
+    [plan-fact p1 f-example-term]
+    [plan-fact p1 f-example-result]
+    [plan-check p1 undefined-term]
+    [comment p1 "AI should replace this starter plan with extracted facts."]
+
+    [term example-term unknown]
+    [claim c1 assertion example-term example-result]
+    [term example-result unknown]
+    [mechanism c1 unknown]
+    [modality c1 unknown]
+    [scope c1 unknown]
+
+    [fact-scope f-example-term local]
+    [fact-scope f-example-result local]
+  ])
+EOF
+    echo "Created work/draft.txt and a starter work/ai-facts.shen."
+    ;;
+  show)
+    ensure_dirs
+    echo "Draft:"
+    sed -n '1,120p' "$WORK/draft.txt"
+    echo
+    echo "AI facts:"
+    sed -n '1,220p' "$FACTS"
+    echo
+    echo "Last Shen output:"
+    [[ -f "$OUT/shen-output.txt" ]] && sed -n '1,220p' "$OUT/shen-output.txt" || true
+    echo
+    echo "Last mutation output:"
+    [[ -f "$OUT/mutation-output.txt" ]] && sed -n '1,220p' "$OUT/mutation-output.txt" || true
+    ;;
+  help|--help|-h)
+    usage
+    ;;
+  *)
+    usage
+    exit 1
+    ;;
+esac

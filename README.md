@@ -1,0 +1,479 @@
+# LogicBox
+
+LogicBox is a tiny plain-text to Shen reasoning loop.
+
+The human writes prose. The AI proposes symbolic facts. Shen derives structural flags. The AI explains those flags and asks for clarification.
+
+It is for improving the structure of an argument, not proving that the argument is true.
+
+## Quick Start
+
+```sh
+./logicbox check
+```
+
+The current draft is in `work/draft.txt`.
+
+The AI-facing facts are in `work/ai-facts.shen`.
+
+The derived Shen output is saved to `output/shen-output.txt`.
+
+Run the rewrite mutation check with:
+
+```sh
+./logicbox mutation
+```
+
+Rewrite-derived facts live in `work/rewrite-facts.shen`, and mutation output is saved to `output/mutation-output.txt`.
+
+Run the built-in rule fixtures with:
+
+```sh
+./logicbox test
+```
+
+Run only the adversarial fixtures with:
+
+```sh
+./logicbox stress
+```
+
+## How To Use It
+
+The normal workflow is small and file-based:
+
+1. Write or paste a paragraph into `work/draft.txt`.
+2. Ask the AI to extract candidate facts into `work/ai-facts.shen`.
+3. Run `./logicbox check`.
+4. Read `output/shen-output.txt`.
+5. Ask the AI to explain only those Shen-derived flags in `output/ai-feedback.md`.
+6. Clarify the paragraph or the intended meaning.
+7. Update `work/ai-facts.shen` and run `./logicbox check` again.
+
+For a rewrite pass:
+
+1. Put the proposed rewrite in `work/rewrite.md`.
+2. Ask the AI to extract rewrite facts into `work/rewrite-facts.shen`.
+3. Run `./logicbox mutation`.
+4. Read `output/mutation-output.txt`.
+5. If mutation flags appear, decide whether the rewrite changed the intended meaning.
+
+The human remains the authority on meaning. If Shen flags something because the AI encoded your meaning incorrectly, fix the facts rather than rewriting the prose.
+
+## Start A New Claim
+
+```sh
+./logicbox new "Online learning is just as effective as in-person learning."
+```
+
+Then the AI edits `work/ai-facts.shen` with candidate facts and runs:
+
+```sh
+./logicbox check
+```
+
+## AI Workflow
+
+For each draft, the AI should:
+
+1. Read `work/draft.txt`.
+2. Identify the likely argument in plain English.
+3. Extract main terms, claims, mechanisms, modality, and scope.
+4. Split grounds from conclusions when possible.
+5. Add context obligations that the claim relies on.
+6. Add staged mechanism steps for broad causal claims.
+7. Add simple scopes for plan facts.
+8. Mark unclear terms or context as `unknown` instead of guessing.
+9. Add semantic helper facts when useful, such as `[similar A B]`, `[abstract M]`, or `[supports p1 k1]`.
+10. Run `./logicbox check`.
+11. Explain only the flags Shen actually derives.
+
+The AI supplies semantic relationships. Shen derives the warnings.
+
+## Reading The Output
+
+`[clear-enough p1]` means the current plan has no blocking structural flags. It does not mean the argument is true.
+
+`[plan-incomplete p1]` means at least one blocking issue remains.
+
+Common flags:
+
+- `[undefined-term X]`: a key term needs a definition or replacement.
+- `[missing-mechanism C]`: a causal claim lacks a represented mechanism.
+- `[mechanism-restates-source ...]`: the explanation may repeat the starting point.
+- `[mechanism-restates-target ...]`: the explanation may repeat the desired result.
+- `[missing-context C X]`: a background assumption is needed.
+- `[claim-without-ground K]`: a conclusion has no represented support.
+- `[stage-chain-too-short C Count Minimum]`: a causal bridge needs more intermediate structure.
+- `[scope-missing F]`: a plan fact needs a local, section, document, or global scope.
+- `[precomputed-flag ...]`: a final Shen result was incorrectly placed in the AI fact input.
+
+When a flag appears, the next move is usually one of three things: define a term, add the missing mechanism/context, or ask the human whether the AI misunderstood the intended meaning.
+
+## What To Ask The AI
+
+Useful prompts while working locally:
+
+```text
+Read work/draft.txt, extract a reasoning plan into work/ai-facts.shen, then run ./logicbox check and explain only Shen's output.
+```
+
+```text
+Use Shen's flags to ask me one or two clarification questions. Do not rewrite yet.
+```
+
+```text
+Update work/ai-facts.shen using my clarification and rerun the check.
+```
+
+```text
+Propose a rewrite, extract rewrite facts, run ./logicbox mutation, and tell me whether Shen found meaning drift.
+```
+
+```text
+Run ./logicbox stress and summarize which adversarial cases the kernel catches.
+```
+
+## Reasoning Plans
+
+The AI should now group extracted facts into a lightweight reasoning plan. This is still plain Shen data, not a new app architecture.
+
+```shen
+[plan p1]
+[plan-source p1 draft-1]
+[plan-goal p1 clarify-argument]
+[plan-fact p1 f-term-adjust]
+[plan-fact p1 f-term-better]
+[plan-fact p1 f1]
+[plan-context p1 feedback-is-reliable-enough]
+[plan-check p1 missing-context]
+[comment p1 "The paragraph appears to rely on feedback as an adaptive mechanism."]
+```
+
+Comments are first-class notes, but they are not evidence. Shen ignores comments when deriving flags.
+
+## Kernel Vocabulary
+
+Use these fact families when useful:
+
+```shen
+[ground-claim g1 Source Target]
+[conclusion k1 Target]
+[infers-to g1 k1]
+
+[context-required c1 feedback-is-reliable-enough]
+[context-known feedback-is-reliable-enough unknown]
+
+[stage s1 observe-results]
+[stage-of s1 c1]
+[stage-order s1 1]
+[stage-next c1 s1 s2]
+[stage-bridge s1 s2 causal-attribution]
+[stage-chain-min c1 3]
+
+[entity people]
+[property people independent-judgment]
+[relation accepts-without-evaluation people ai-output]
+
+[fact-scope f1 local]
+[fact-scope f2 section]
+[fact-scope f3 document]
+[fact-scope f4 global]
+```
+
+## Important Boundary
+
+The AI may write facts like:
+
+```shen
+[term online-learning unknown]
+[claim c1 equivalence online-learning in-person-learning]
+[mechanism c1 unknown]
+[modality c1 unknown]
+[scope c1 unknown]
+
+[fact-scope f-term-adjust local]
+[similar source-symbol mechanism-symbol]
+[abstract vague-mechanism]
+[supports premise-claim conclusion-claim]
+[context-required c1 actor-can-change-future-actions]
+[context-known actor-can-change-future-actions unknown]
+```
+
+The AI must not write derived flags like:
+
+```shen
+[undefined-term online-learning]
+[missing-mechanism c1]
+[mechanism-restates-source c1 source mechanism]
+[mechanism-restates-target c1 target mechanism]
+[mechanism-too-abstract c1 mechanism]
+[missing-context c1 actor-can-change-future-actions]
+[plan-incomplete p1]
+[clear-enough p1]
+```
+
+Those belong to Shen and appear only in `output/shen-output.txt`.
+
+For rewrite checks, the AI appends only rewrite facts in `work/rewrite-facts.shen`:
+
+```shen
+(set *facts*
+  (append (value *facts*)
+    [
+      [rewrite-claim r1 causal ai-use destroyed-intelligence]
+      [rewrite-modality r1 certain]
+      [rewrite-scope r1 universal]
+      [broader-than ai-use passive-ai-dependence]
+      [stronger-effect destroyed-intelligence weakened-independent-judgment]
+      [stronger-than certain possible]
+      [stronger-than universal conditional]
+    ]))
+```
+
+Then run:
+
+```sh
+./logicbox mutation
+```
+
+## Fact Format
+
+Facts are Shen data inside `work/ai-facts.shen`:
+
+```shen
+(set *facts*
+  [
+    [term some-symbol unknown]
+    [term another-symbol known]
+    [claim c1 causal some-symbol another-symbol]
+    [mechanism c1 unknown]
+    [modality c1 possible]
+    [scope c1 conditional]
+  ])
+```
+
+## Explanatory Distance
+
+LogicBox can now detect when a mechanism exists syntactically but does not add much explanation.
+
+Weak example:
+
+```shen
+[claim c1 causal adjust-based-on-results better-outcomes]
+[mechanism c1 repeat-what-works]
+[similar adjust-based-on-results repeat-what-works]
+```
+
+Shen derives:
+
+```shen
+[mechanism-restates-source c1 adjust-based-on-results repeat-what-works]
+```
+
+Meaning: the explanation may be too close to the original claim. It says adjustment works because adjustment repeats what works.
+
+Stronger mechanisms usually describe a bridge such as:
+
+```text
+early problem detection
+lower cost of correction
+better allocation of effort
+improved information for future choices
+```
+
+## Checks Implemented
+
+Current Shen-derived flags:
+
+- `[undefined-term X]`
+- `[missing-mechanism C]`
+- `[unclear-modality C]`
+- `[unclear-scope C]`
+- `[mechanism-restates-source C Source Mechanism]`
+- `[mechanism-restates-target C Target Mechanism]`
+- `[mechanism-too-abstract C Mechanism]`
+- `[missing-context C Context]`
+- `[conclusion-stronger-than-premises Premise Conclusion OldModality NewModality]`
+- `[conclusion-stronger-than-ground Ground Conclusion OldModality NewModality]`
+- `[claim-without-ground Conclusion]`
+- `[stage-chain-too-short C Count Minimum]`
+- `[stage-restates-claim C Stage Label Term]`
+- `[mechanism-restates-stage C Stage Mechanism Label]`
+- `[missing-stage-bridge C Stage1 Stage2]`
+- `[scope-missing Fact]`
+- `[scope-conflict Fact1 Fact2 Scope1 Scope2]`
+- `[global-term-redefined-locally Term GlobalFact LocalFact]`
+- `[precomputed-flag FlagName ...]`
+- `[plan-incomplete P]`
+- `[clear-enough P]`
+- `[modality-mutation C R Old New]`
+- `[scope-mutation C R Old New]`
+- `[source-mutation C R Old New]`
+- `[target-mutation C R Old New]`
+
+`[clear-enough P]` is not a truth verdict. It only means this local plan has no blocking structural flags.
+
+## Counterexample Feedback
+
+When Shen derives a weakness such as `missing-context`, `missing-mechanism`, `stage-chain-too-short`, `claim-without-ground`, or `conclusion-stronger-than-premises`, the AI should add one short "Counterexample pressure test" in plain language.
+
+Example:
+
+```text
+Someone may observe results but misread them, repeat the wrong action, or lack the ability to change behavior. In that case, feedback exists but improvement does not follow.
+```
+
+This counterexample is explanatory AI feedback, not a Shen-derived result.
+
+## Worked Kernel Example
+
+Draft:
+
+```text
+People who adjust based on results do better because adjusting based on results lets them repeat what works.
+```
+
+Candidate facts:
+
+```shen
+[plan p1]
+[plan-source p1 draft-1]
+[plan-goal p1 clarify-argument]
+
+[term adjust-based-on-results known]
+[term better-outcomes unknown]
+[term repeat-what-works known]
+
+[ground-claim g1 adjust-based-on-results repeat-what-works]
+[conclusion k1 better-outcomes]
+[infers-to g1 k1]
+
+[claim c1 causal adjust-based-on-results better-outcomes]
+[mechanism c1 repeat-what-works]
+[similar adjust-based-on-results repeat-what-works]
+
+[context-required c1 result-measure-is-reliable]
+[context-known result-measure-is-reliable unknown]
+[context-required c1 actor-can-change-future-actions]
+[context-known actor-can-change-future-actions unknown]
+
+[stage-chain-min c1 3]
+[stage s1 repeat-what-works]
+[stage-of s1 c1]
+[stage-order s1 1]
+
+[modality c1 unknown]
+[scope c1 unknown]
+```
+
+Expected Shen output:
+
+```shen
+[undefined-term better-outcomes]
+[unclear-modality c1]
+[unclear-scope c1]
+[mechanism-restates-source c1 adjust-based-on-results repeat-what-works]
+[missing-context c1 result-measure-is-reliable]
+[missing-context c1 actor-can-change-future-actions]
+[stage-chain-too-short c1 1 3]
+[stage-restates-claim c1 s1 repeat-what-works adjust-based-on-results]
+[mechanism-restates-stage c1 s1 repeat-what-works repeat-what-works]
+[scope-missing f-term-better]
+[plan-incomplete p1]
+```
+
+Expected AI feedback:
+
+```text
+Shen did not say the claim is false. It found that the mechanism and stage structure are still too close to the original claim, and that two context assumptions are missing: the result measure must be reliable enough, and the actor must be able to change future actions.
+
+Counterexample pressure test:
+Someone may observe results but misread them, repeat the wrong action, or be unable to change behavior. In that case, feedback exists but improvement does not follow.
+
+Clarifying question:
+What changes after observing results: strategy, attention, effort allocation, or the person's model of the task?
+```
+
+## Stress Tests
+
+The test suite includes adversarial fixtures:
+
+```sh
+./logicbox test
+```
+
+The stress-only command runs just the adversarial fixtures:
+
+```sh
+./logicbox stress
+```
+
+These try to sneak in fake support, circular stages, local/global scope leaks, comments as evidence, and precomputed final flags. Shen should derive flags instead of accepting those shortcuts.
+
+Expected stress behavior:
+
+- `stress-comment-as-evidence-model.shen`: comments do not satisfy missing context.
+- `stress-fake-support-model.shen`: unknown ground claims do not support conclusions.
+- `stress-precomputed-flag-model.shen`: final flags in input are reported as `precomputed-flag`.
+- `stress-scope-leak-model.shen`: local/global definition drift is flagged.
+- `stress-stage-circular-model.shen`: short or circular stage chains remain incomplete.
+
+## Troubleshooting
+
+If `./logicbox check` returns `[]`, there may be no `[plan ...]` fact in the current model. Older fixtures without a plan can still produce ordinary flags, but only plans produce `[clear-enough ...]` or `[plan-incomplete ...]`.
+
+If Shen reports a syntax error, inspect `work/ai-facts.shen` for mismatched brackets. Facts use Shen lists like `[claim c1 causal source target]`, not Lisp parentheses.
+
+If a flag seems wrong, first check whether the AI encoded the prose correctly. The system checks the facts it was given; it does not read the draft directly.
+
+If `[precomputed-flag ...]` appears, remove the derived flag from `work/ai-facts.shen`. The AI may submit helper facts, but Shen must derive final flags.
+
+## Upload Checklist
+
+Before uploading or sharing the folder:
+
+1. Run `./logicbox check`.
+2. Run `./logicbox mutation`.
+3. Run `./logicbox stress`.
+4. Run `./logicbox test`.
+5. Confirm no hidden Shen raw outputs are present in `output/`.
+6. Confirm `README.md` and `skill.md` are the only authoritative docs.
+7. Confirm the sample files in `work/` are safe to share.
+
+The upload-ready surface is:
+
+```text
+.gitignore
+README.md
+skill.md
+logicbox
+shen/
+tests/
+work/
+output/
+```
+
+Generated raw Shen logs are ignored by `.gitignore`; the useful human-readable outputs are kept in `output/shen-output.txt`, `output/mutation-output.txt`, and `output/ai-feedback.md`.
+
+## Files
+
+```text
+.gitignore
+logicbox
+README.md
+skill.md
+work/
+  draft.txt
+  ai-facts.shen
+  rewrite.md
+  rewrite-facts.shen
+shen/
+  rules.shen
+  run.shen
+  run-mutation.shen
+output/
+  shen-output.txt
+  ai-feedback.md
+  mutation-output.txt
+```

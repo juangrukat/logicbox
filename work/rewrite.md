@@ -1,0 +1,1 @@
+People who regularly question their thinking and adjust their behavior using real-world feedback are more likely to improve outcomes in areas such as health, money, and life satisfaction. The habit helps because feedback can reveal small problems early, show which routines are not working, and make it easier to redirect effort before the cost of correction grows.
