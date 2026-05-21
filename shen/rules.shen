@@ -518,7 +518,11 @@
   P [tension subgroup-rule-conflicts-with-policy C _ _] Facts -> (claim-belongs-to-plan? P C Facts)
   P [mitigation-needs-equivalence-check _ _] Facts -> true
   P [overclaim necessity-counterfactual K _] Facts -> (conclusion-belongs-to-plan? P K Facts)
+  P [overclaim necessity-counterfactual _ _] Facts -> true
   P [contradiction _ _] Facts -> true
+  P [contradiction _ _ _] Facts -> true
+  P [tension _ _ _] Facts -> true
+  P [tension _ _ _ _] Facts -> true
   P [deleted-main-claim _] Facts -> true
   P [deleted-condition _] Facts -> true
   P [deleted-objection _] Facts -> true
@@ -558,7 +562,11 @@
   P [[tension uniform-rule-vs-exception _ _] | Rest] Facts -> true
   P [[mitigation-needs-equivalence-check _ _] | Rest] Facts -> true
   P [[overclaim necessity-counterfactual K _] | Rest] Facts -> (if (conclusion-belongs-to-plan? P K Facts) true (plan-has-reconciliation-needed? P Rest Facts))
+  P [[overclaim necessity-counterfactual _ _] | Rest] Facts -> true
   P [[contradiction _ _] | Rest] Facts -> true
+  P [[contradiction _ _ _] | Rest] Facts -> true
+  P [[tension _ _ _] | Rest] Facts -> true
+  P [[tension _ _ _ _] | Rest] Facts -> true
   P [_ | Rest] Facts -> (plan-has-reconciliation-needed? P Rest Facts))
 
 (define incomplete-plan-status
@@ -1434,10 +1442,53 @@
 (define collect-treatment-tensions
   Facts -> (collect-treatment-tensions-h Facts Facts))
 
+(define collect-helper-privacy-contradictions-h
+  [] Facts -> []
+  [[undermines Actor privacypreserved] | Rest] Facts -> [[contradiction no-trip-tracking-vs-id-scan-verification Actor privacypreserved] |
+                                                         (collect-helper-privacy-contradictions-h Rest Facts)]
+  [_ | Rest] Facts -> (collect-helper-privacy-contradictions-h Rest Facts))
+
+(define collect-helper-privacy-contradictions
+  Facts -> (collect-helper-privacy-contradictions-h Facts Facts))
+
+(define collect-helper-equity-tensions-h
+  [] Facts -> []
+  [[undermines Actor protectedgroups] | Rest] Facts -> [[tension equity-protection-undermined Actor protectedgroups] |
+                                                        (collect-helper-equity-tensions-h Rest Facts)]
+  [_ | Rest] Facts -> (collect-helper-equity-tensions-h Rest Facts))
+
+(define collect-helper-equity-tensions
+  Facts -> (collect-helper-equity-tensions-h Facts Facts))
+
+(define collect-helper-target-conflict-tensions-h
+  [] Facts -> []
+  [[conflicts-with-target Actor transitpass] | Rest] Facts -> [[tension fairness-definition-conflicts-with-policy-target Actor transitpass] |
+                                                               (collect-helper-target-conflict-tensions-h Rest Facts)]
+  [_ | Rest] Facts -> (collect-helper-target-conflict-tensions-h Rest Facts))
+
+(define collect-helper-target-conflict-tensions
+  Facts -> (collect-helper-target-conflict-tensions-h Facts Facts))
+
+(define collect-helper-equivalent-benefit-denials-h
+  [] Facts -> []
+  [[conflicts-with-target Actor transitpass] | Rest] Facts -> [[contradiction equivalent-benefit-required-vs-denied Actor transitpass] |
+                                                               (collect-helper-equivalent-benefit-denials-h Rest Facts)]
+  [_ | Rest] Facts -> (collect-helper-equivalent-benefit-denials-h Rest Facts))
+
+(define collect-helper-equivalent-benefit-denials
+  Facts -> (collect-helper-equivalent-benefit-denials-h Facts Facts))
+
+(define collect-helper-consistency-flags
+  Facts -> (append (collect-helper-privacy-contradictions Facts)
+           (append (collect-helper-equity-tensions Facts)
+           (append (collect-helper-target-conflict-tensions Facts)
+                   (collect-helper-equivalent-benefit-denials Facts)))))
+
 (define collect-consistency-contradictions
   Facts -> (append (collect-equivalent-benefit-contradictions Facts)
            (append (collect-trip-tracking-contradictions Facts)
-                   (collect-treatment-tensions Facts))))
+           (append (collect-treatment-tensions Facts)
+                   (collect-helper-consistency-flags Facts)))))
 
 (define evidence-known?
   R [] -> false

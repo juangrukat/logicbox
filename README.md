@@ -188,6 +188,8 @@ Stage 3 rewrite-safety migration makes Shen/SBCL the default source of truth for
 
 Structure-only rewrites must also preserve protected claims. A rewrite may mark a protected claim unresolved, but it may not replace it with `[undefined: fill missing information]` or omit it. Protected roles include main recommendations, core/scope conditions, objections, concessions, rebuttals, safeguards, mitigations, exceptions, equity guardrails, and value conclusions.
 
+Structured consistency helper facts are not manual notes. Shen promotes facts such as `[undermines idscan privacypreserved]`, `[undermines nontransitfair protectedgroups]`, and `[conflicts-with-target nontransitfair transitpass]` into formal contradiction or tension flags, and any contradiction, tension, or necessity overclaim forces `needs-reconciliation`.
+
 Use protected-role facts in symbolic mutation checks:
 
 ```shen

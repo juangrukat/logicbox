@@ -13,9 +13,12 @@
 
     [no-trip-tracking privacy]
     [id-scan-verification privacy]
+    [undermines idscan privacypreserved]
 
     [identical-treatment fairness]
     [requires-equitable-treatment fairness]
+    [undermines nontransitfair protectedgroups]
+    [conflicts-with-target nontransitfair transitpass]
 
     [conclusion k1 necessaryconclusion]
     [ground-claim g1 transitpass necessaryconclusion]

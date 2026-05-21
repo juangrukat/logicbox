@@ -119,6 +119,8 @@ When asked to fill gaps with user-supplied facts:
 
 User-supplied facts are allowed mutations, but they are not automatically logically compatible with the argument.
 
+Do not report structured helper facts as "implicit tensions, watch manually." If facts such as `[undermines X privacypreserved]`, `[undermines X protectedgroups]`, or `[conflicts-with-target X transitpass]` are present, Shen should derive formal `contradiction` or `tension` flags from them, and the plan status should be `needs-reconciliation`.
+
 When asked to check a symbolic rewrite:
 
 1. Put the rewrite in `work/rewrite.md` or read the existing rewrite.
