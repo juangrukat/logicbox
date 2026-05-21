@@ -77,6 +77,28 @@ When asked to create a structure-only rewrite:
 
 In `structure_only`, never add new statistics, dates, deadlines, thresholds, percentages, named programs, proper nouns, empirical claims, causal mechanisms, implementation procedures, groups, stronger modality, or uniqueness claims. Replace those needs with placeholders such as `[G1: define size threshold]`.
 
+Protected claims must stay present. A structure-only rewrite may preserve, meaning-preservingly rephrase, add bracketed gaps inside, or mark a protected sentence unresolved while keeping the original sentence. It must not delete or replace these roles with a standalone placeholder:
+
+- main recommendation or main claim
+- core or scope condition
+- objection
+- concession
+- rebuttal
+- safeguard
+- mitigation
+- exception or equity guardrail
+- value conclusion
+
+When a placeholder would erase or mutate a protected sentence, use `mark-unresolved` and preserve the original text. The rendered rewrite should look like:
+
+```text
+Original protected sentence.
+
+[Unresolved: G1 missing standard, G2 missing threshold.]
+```
+
+Never replace a protected sentence with `[undefined: fill missing information]`.
+
 When asked to fill gaps with user-supplied facts:
 
 1. Use `rewrite_with_user_facts`.
@@ -136,6 +158,36 @@ Shen derives flags from facts and rules. Shen does not interpret raw prose by it
 `clear-enough` means only that the current plan has no blocking structural flags. It is not a validity judgment and not a truth claim.
 
 `needs-reconciliation` means the translation and mutation provenance may be acceptable, but accepted facts conflict with earlier claims, benefits, scope, rules, mitigations, or conclusions. Do not collapse this into `needs-user-input`, and do not treat mutation pass as argument pass.
+
+Deletion flags mean a rewrite erased protected structure. They are mutation failures, not requests for evidence:
+
+- `[deleted-main-claim C]`
+- `[deleted-condition C]`
+- `[deleted-objection O]`
+- `[deleted-concession X]`
+- `[deleted-rebuttal R]`
+- `[deleted-safeguard S]`
+- `[deleted-mitigation M]`
+- `[deleted-value-conclusion K]`
+
+Represent protected roles explicitly when extracting or normalizing facts:
+
+```shen
+[protected c1 main-claim]
+[protected c2 core-condition]
+[protected o1 objection]
+[protected m1 mitigation]
+[protected k1 value-conclusion]
+```
+
+A rewrite preserves them with same-ID status, explicit correspondence, or unresolved marking:
+
+```shen
+[rewrite-status c1 preserved]
+[marked-unresolved c2 G1]
+[corresponds o1 rw-o1]
+[rewrite-status rw-o1 preserved]
+```
 
 ## No Precomputed Flags
 
@@ -604,6 +656,17 @@ The post-gap consistency layer should derive:
 - `[tension subgroup-rule-conflicts-with-policy C Rule Group]`
 - `[mitigation-needs-equivalence-check Mitigation Objection]`
 - `[overclaim necessity-counterfactual Conclusion Ground]`
+
+Deletion safety should derive:
+
+- `[deleted-main-claim Claim]`
+- `[deleted-condition Claim]`
+- `[deleted-objection Objection]`
+- `[deleted-concession Concession]`
+- `[deleted-rebuttal Rebuttal]`
+- `[deleted-safeguard Safeguard]`
+- `[deleted-mitigation Mitigation]`
+- `[deleted-value-conclusion Conclusion]`
 
 The current local rules also include mutation checks:
 

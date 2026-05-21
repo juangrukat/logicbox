@@ -323,6 +323,15 @@
   P [tension subgroup-rule-conflicts-with-policy C _ _] Facts -> (claim-belongs-to-plan? P C Facts)
   P [mitigation-needs-equivalence-check _ _] Facts -> true
   P [overclaim necessity-counterfactual K _] Facts -> (conclusion-belongs-to-plan? P K Facts)
+  P [deleted-main-claim _] Facts -> true
+  P [deleted-condition _] Facts -> true
+  P [deleted-objection _] Facts -> true
+  P [deleted-concession _] Facts -> true
+  P [deleted-rebuttal _] Facts -> true
+  P [deleted-safeguard _] Facts -> true
+  P [deleted-mitigation _] Facts -> true
+  P [deleted-value-conclusion _] Facts -> true
+  P [deleted-protected-claim _ _] Facts -> true
   P [analogy-needs-comparability _] Facts -> true
   P [popularity-weak-support _ C] Facts -> (claim-belongs-to-plan? P C Facts)
   P [exception-boundary-needed _] Facts -> true
@@ -453,6 +462,15 @@
   [[tension subgroup-rule-conflicts-with-policy C Rule Group] | Rest] -> [[precomputed-flag tension subgroup-rule-conflicts-with-policy C Rule Group] | (collect-precomputed-flags Rest)]
   [[mitigation-needs-equivalence-check M O] | Rest] -> [[precomputed-flag mitigation-needs-equivalence-check M O] | (collect-precomputed-flags Rest)]
   [[overclaim necessity-counterfactual K Ground] | Rest] -> [[precomputed-flag overclaim necessity-counterfactual K Ground] | (collect-precomputed-flags Rest)]
+  [[deleted-main-claim X] | Rest] -> [[precomputed-flag deleted-main-claim X] | (collect-precomputed-flags Rest)]
+  [[deleted-condition X] | Rest] -> [[precomputed-flag deleted-condition X] | (collect-precomputed-flags Rest)]
+  [[deleted-objection X] | Rest] -> [[precomputed-flag deleted-objection X] | (collect-precomputed-flags Rest)]
+  [[deleted-concession X] | Rest] -> [[precomputed-flag deleted-concession X] | (collect-precomputed-flags Rest)]
+  [[deleted-rebuttal X] | Rest] -> [[precomputed-flag deleted-rebuttal X] | (collect-precomputed-flags Rest)]
+  [[deleted-safeguard X] | Rest] -> [[precomputed-flag deleted-safeguard X] | (collect-precomputed-flags Rest)]
+  [[deleted-mitigation X] | Rest] -> [[precomputed-flag deleted-mitigation X] | (collect-precomputed-flags Rest)]
+  [[deleted-value-conclusion X] | Rest] -> [[precomputed-flag deleted-value-conclusion X] | (collect-precomputed-flags Rest)]
+  [[deleted-protected-claim X Role] | Rest] -> [[precomputed-flag deleted-protected-claim X Role] | (collect-precomputed-flags Rest)]
   [[analogy-needs-comparability A] | Rest] -> [[precomputed-flag analogy-needs-comparability A] | (collect-precomputed-flags Rest)]
   [[popularity-weak-support P C] | Rest] -> [[precomputed-flag popularity-weak-support P C] | (collect-precomputed-flags Rest)]
   [[exception-boundary-needed E] | Rest] -> [[precomputed-flag exception-boundary-needed E] | (collect-precomputed-flags Rest)]
@@ -1058,6 +1076,66 @@
 (define collect-target-mutations
   Facts -> (collect-target-mutations-h Facts Facts))
 
+(define rewrite-context?
+  [] -> false
+  [[rewrite-claim _ _ _ _] | _] -> true
+  [[rewrite-conclusion _ _] | _] -> true
+  [[rewrite-modality _ _] | _] -> true
+  [[rewrite-scope _ _] | _] -> true
+  [[rewrite-status _ _] | _] -> true
+  [[rewrite-corresponds _ _] | _] -> true
+  [[corresponds _ _] | _] -> true
+  [_ | Rest] -> (rewrite-context? Rest))
+
+(define rewrite-node-preserved?
+  Y [] -> false
+  Y [[rewrite-status Y preserved] | _] -> true
+  Y [[rewrite-status Y marked-unresolved] | _] -> true
+  Y [[rewrite-status Y unresolved] | _] -> true
+  Y [[rewrite-claim Y _ _ _] | _] -> true
+  Y [[rewrite-conclusion Y _] | _] -> true
+  Y [_ | Rest] -> (rewrite-node-preserved? Y Rest))
+
+(define protected-preserved?
+  X [] Facts -> false
+  X [[preserved X] | _] Facts -> true
+  X [[marked-unresolved X _] | _] Facts -> true
+  X [[rewrite-status X preserved] | _] Facts -> true
+  X [[rewrite-status X marked-unresolved] | _] Facts -> true
+  X [[rewrite-status X unresolved] | _] Facts -> true
+  X [[rewrite-claim X _ _ _] | _] Facts -> true
+  X [[rewrite-conclusion X _] | _] Facts -> true
+  X [[rewrite-corresponds X Y] | _] Facts -> (rewrite-node-preserved? Y Facts)
+  X [[corresponds X Y] | _] Facts -> (rewrite-node-preserved? Y Facts)
+  X [_ | Rest] Facts -> (protected-preserved? X Rest Facts))
+
+(define deleted-protected-flag
+  X main-claim -> [deleted-main-claim X]
+  X main-recommendation -> [deleted-main-claim X]
+  X core-condition -> [deleted-condition X]
+  X scope-condition -> [deleted-condition X]
+  X objection -> [deleted-objection X]
+  X concession -> [deleted-concession X]
+  X rebuttal -> [deleted-rebuttal X]
+  X safeguard -> [deleted-safeguard X]
+  X mitigation -> [deleted-mitigation X]
+  X exception -> [deleted-safeguard X]
+  X equity-guardrail -> [deleted-safeguard X]
+  X value-conclusion -> [deleted-value-conclusion X]
+  X Role -> [deleted-protected-claim X Role])
+
+(define collect-deleted-protected-h
+  [] Facts -> []
+  [[protected X Role] | Rest] Facts -> (if (protected-preserved? X Facts Facts)
+                                        (collect-deleted-protected-h Rest Facts)
+                                        [(deleted-protected-flag X Role) | (collect-deleted-protected-h Rest Facts)])
+  [_ | Rest] Facts -> (collect-deleted-protected-h Rest Facts))
+
+(define collect-deleted-protected
+  Facts -> (if (rewrite-context? Facts)
+            (collect-deleted-protected-h Facts Facts)
+            []))
+
 (define evidence-known?
   R [] -> false
   R [[evidence R shown] | _] -> true
@@ -1117,10 +1195,11 @@
            (append (collect-broad-ban-exceptions Facts)
            (append (collect-mechanism-path-needed Facts)
            (append (collect-evidence-needed Facts)
+           (append (collect-deleted-protected Facts)
            (append (collect-modality-mutations Facts)
            (append (collect-scope-mutations Facts)
            (append (collect-source-mutations Facts)
-                   (collect-target-mutations Facts)))))))))))))))))))))))))))))))))))))))))))))))
+                   (collect-target-mutations Facts))))))))))))))))))))))))))))))))))))))))))))))))
 
 (define collect-plan-status-h
   [] Facts -> []

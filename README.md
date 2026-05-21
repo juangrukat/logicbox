@@ -180,6 +180,29 @@ Do not bury consistency-relevant user answers only inside `[definition ... "..."
 
 The rewrite preflight blocks new numbers, thresholds, percentages, deadlines, named programs, proper nouns, empirical claims, comparison claims, implementation procedures, groups, stronger modality, and uniqueness claims unless they are represented as placeholders.
 
+Structure-only rewrites must also preserve protected claims. A rewrite may mark a protected claim unresolved, but it may not replace it with `[undefined: fill missing information]` or omit it. Protected roles include main recommendations, core/scope conditions, objections, concessions, rebuttals, safeguards, mitigations, exceptions, equity guardrails, and value conclusions.
+
+Use protected-role facts in symbolic mutation checks:
+
+```shen
+[protected c1 main-claim]
+[protected c2 core-condition]
+[protected o1 objection]
+[protected m1 mitigation]
+[protected k1 value-conclusion]
+```
+
+Then the rewrite must show preservation with same-ID rewrite status, correspondence, or unresolved marking:
+
+```shen
+[rewrite-status c1 preserved]
+[marked-unresolved c2 G1]
+[corresponds o1 rw-o1]
+[rewrite-status rw-o1 preserved]
+```
+
+If a protected role disappears, Shen derives deletion flags such as `[deleted-main-claim c1]`, `[deleted-condition c2]`, or `[deleted-value-conclusion k1]`. The text mutation report also includes deletion checks for main claims, core conditions, objections, safeguards, and conclusions.
+
 Gap objects are first-class:
 
 ```json
@@ -218,6 +241,14 @@ The final report contains:
 7. Next recommended action
 
 Core rule: the rewrite may reduce confusion, but it may not reduce factual uncertainty.
+
+Deletion rule: if inserting a placeholder would erase or mutate the main claim, preserve the original sentence and list the gap externally:
+
+```text
+The hospital should use an AI scheduling assistant to create nurse schedules, but only if patient coverage, nurse fairness, and emergency staffing do not suffer.
+
+[Unresolved: G1 patient coverage, G2 nurse fairness, G3 emergency staffing.]
+```
 
 ## Symbol Contract
 
@@ -283,6 +314,13 @@ Common flags:
 - `[tension subgroup-rule-conflicts-with-policy C Rule Group]`: a subgroup rule conflicts with the main policy target.
 - `[mitigation-needs-equivalence-check M O]`: a fallback mitigation is traceable but may not preserve equivalent benefit.
 - `[overclaim necessity-counterfactual K Ground]`: a necessity claim relies on an unsupported counterfactual ground.
+- `[deleted-main-claim C]`: the main recommendation disappeared from the rewrite.
+- `[deleted-condition C]`: a core/scope condition disappeared from the rewrite.
+- `[deleted-objection O]`: an objection disappeared from the rewrite.
+- `[deleted-rebuttal R]`: a rebuttal disappeared from the rewrite.
+- `[deleted-safeguard S]`: a safeguard, exception, or equity guardrail disappeared from the rewrite.
+- `[deleted-mitigation M]`: a mitigation disappeared from the rewrite.
+- `[deleted-value-conclusion K]`: a value conclusion disappeared from the rewrite.
 - `[claim-without-ground K]`: a conclusion has no represented support.
 - `[stage-chain-too-short C Count Minimum]`: a causal bridge needs more intermediate structure.
 - `[scope-missing F]`: a plan fact needs a local, section, document, or global scope.
@@ -491,6 +529,14 @@ Current Shen-derived flags:
 - `[tension subgroup-rule-conflicts-with-policy C Rule Group]`
 - `[mitigation-needs-equivalence-check Mitigation Objection]`
 - `[overclaim necessity-counterfactual Conclusion Ground]`
+- `[deleted-main-claim Claim]`
+- `[deleted-condition Claim]`
+- `[deleted-objection Objection]`
+- `[deleted-concession Concession]`
+- `[deleted-rebuttal Rebuttal]`
+- `[deleted-safeguard Safeguard]`
+- `[deleted-mitigation Mitigation]`
+- `[deleted-value-conclusion Conclusion]`
 - `[conclusion-stronger-than-premises Premise Conclusion OldModality NewModality]`
 - `[conclusion-stronger-than-ground Ground Conclusion OldModality NewModality]`
 - `[claim-without-ground Conclusion]`

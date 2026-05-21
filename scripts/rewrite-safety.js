@@ -48,6 +48,28 @@ const PROVENANCE_LABELS = new Set([
   "USER_SUPPLIED",
   "MARKED_UNRESOLVED",
 ]);
+const STOP_WORDS = new Set([
+  "the",
+  "and",
+  "but",
+  "only",
+  "that",
+  "this",
+  "with",
+  "from",
+  "they",
+  "their",
+  "should",
+  "would",
+  "could",
+  "must",
+  "will",
+  "have",
+  "into",
+  "before",
+  "after",
+  "because",
+]);
 
 const args = process.argv.slice(2);
 const command = args[0] || "help";
@@ -213,6 +235,16 @@ function runCommand(options) {
 
   let report = buildMutationReport(draft, rewrite, patch, patch.mode || "structure_only");
 
+  if (!report.accepted && (patch.mode || "structure_only") === "structure_only" && report.deletionChecks.missing.length) {
+    const repaired = repairProtectedDeletions(draft, rewrite, report);
+    rewrite = repaired.text;
+    report = buildMutationReport(draft, rewrite, patch, patch.mode || "structure_only");
+    report.repairedDeletion = repaired.repaired;
+    if (repaired.repaired && validationErrors.every(isDeletionPreflightError)) {
+      validationErrors = [];
+    }
+  }
+
   if (!report.accepted && (patch.mode || "structure_only") === "structure_only") {
     const repaired = repairRewriteWithPlaceholders(rewrite, report);
     rewrite = repaired.text;
@@ -297,6 +329,10 @@ function validatePatch(patch, draft) {
     if (mode === "rewrite_with_user_facts") {
       validateUserFactOperation(operation, op, gapIds, resolvedGapIds, errors);
     }
+
+    if (mode === "structure_only") {
+      validateProtectedOperation(operation, op, draft, errors);
+    }
   }
 
   for (const gap of patch.gaps || []) {
@@ -317,6 +353,35 @@ function validatePatch(patch, draft) {
   }
 
   return { errors, warnings };
+}
+
+function validateProtectedOperation(operation, op, draft, errors) {
+  const sentenceId = operation.sentenceId;
+  if (!sentenceId) {
+    return;
+  }
+
+  const protectedItems = inferProtectedItems(draft).filter((item) => item.sentenceId === sentenceId);
+  if (!protectedItems.length) {
+    return;
+  }
+
+  if (op === "delete" || op === "omit") {
+    errors.push(`Protected sentence ${sentenceId} cannot be deleted.`);
+    return;
+  }
+
+  if (op === "insert-placeholder") {
+    errors.push(`Protected sentence ${sentenceId} cannot be replaced by a standalone placeholder; use mark-unresolved or preserve the sentence with a bracketed gap.`);
+    return;
+  }
+
+  if ((op === "rephrase" || op === "surface-implicit-criterion" || op === "split") && protectedRewriteText(operation).trim()) {
+    const text = protectedRewriteText(operation);
+    if (isPlaceholderOnly(text)) {
+      errors.push(`Protected sentence ${sentenceId} cannot be replaced by an undefined placeholder.`);
+    }
+  }
 }
 
 function validateUserFactOperation(operation, op, gapIds, resolvedGapIds, errors) {
@@ -368,7 +433,14 @@ function applyPatchToDraft(draft, patch) {
     } else if (op === "insert-placeholder") {
       output.push(formatStandalonePlaceholder(operation.gapId, patch));
     } else if (op === "mark-unresolved") {
-      output.push(formatStandalonePlaceholder(operation.gapId, patch));
+      const original = sentenceMap.get(operation.sentenceId) || "";
+      if (original) {
+        output.push(original);
+      }
+      const unresolved = formatUnresolvedNote(operation, patch);
+      if (unresolved) {
+        output.push(unresolved);
+      }
     }
   }
 
@@ -389,6 +461,7 @@ function buildMutationReport(draft, rewrite, patch, mode) {
   const nonPlaceholderRewrite = substitutePlaceholdersWithGapSubjects(rewrite, patch);
   const nonPlaceholderCandidate = analyzeText(nonPlaceholderRewrite);
   const violations = [];
+  const deletionChecks = buildDeletionChecks(draft, rewrite, patch);
 
   const userSources = collectUserFactSources(patch);
 
@@ -414,6 +487,17 @@ function buildMutationReport(draft, rewrite, patch, mode) {
     violations.push({ kind: "objection-removed", snippet: objection, source: "no user source", status: "blocked" });
   }
 
+  for (const missing of deletionChecks.missing) {
+    violations.push({
+      kind: deletionKindForRole(missing.role),
+      snippet: `${missing.id} ${missing.label}`,
+      source: "deleted protected role",
+      status: "blocked",
+      protectedId: missing.id,
+      protectedRole: missing.role,
+    });
+  }
+
   const placeholders = extractPlaceholders(rewrite);
   const modeAccepted = mode === "evidence_mode" || violations.every((violation) => violation.status !== "blocked");
 
@@ -423,6 +507,7 @@ function buildMutationReport(draft, rewrite, patch, mode) {
     repaired: false,
     placeholders,
     violations,
+    deletionChecks,
     checks: {
       newEvidenceAdded: checkStatus(violations, "added-empirical-claim"),
       newThresholdsAdded: checkStatus(violations, "added-threshold"),
@@ -547,6 +632,14 @@ function gapForViolation(id, violation) {
     "added-uniqueness-claim": ["value-criteria-needed", "clarify whether this is unique or merely direct"],
     "modality-strengthened": ["value-criteria-needed", "clarify modality"],
     "objection-removed": ["procedure-needed", "restore or address objection"],
+    "deleted-main-claim": ["definition-needed", "restore main recommendation and mark unresolved gaps externally"],
+    "deleted-condition": ["definition-needed", "restore core condition and mark unresolved gaps externally"],
+    "deleted-objection": ["definition-needed", "restore objection or mark it unresolved"],
+    "deleted-concession": ["definition-needed", "restore concession or mark it unresolved"],
+    "deleted-rebuttal": ["definition-needed", "restore rebuttal or mark it unresolved"],
+    "deleted-safeguard": ["definition-needed", "restore safeguard or mark it unresolved"],
+    "deleted-mitigation": ["definition-needed", "restore mitigation or mark it unresolved"],
+    "deleted-value-conclusion": ["value-criteria-needed", "restore value conclusion and mark unresolved criteria externally"],
   };
   const [type, prompt] = map[violation.kind] || ["definition-needed", "clarify missing information"];
 
@@ -605,6 +698,20 @@ function formatMutationReport(report) {
   lines.push(`Conclusion strengthened: ${report.checks.conclusionStrengthened}`);
   lines.push(`Objections removed: ${report.checks.objectionsRemoved}`);
   lines.push(`Placeholders inserted: ${report.placeholders.length ? report.placeholders.join(", ") : "none"}`);
+  lines.push("");
+  lines.push("Deletion checks:");
+  lines.push(`- Main claim preserved: ${report.deletionChecks.mainClaimPreserved ? "yes" : "no"}`);
+  lines.push(`- Core conditions preserved: ${report.deletionChecks.coreConditionsPreserved ? "yes" : "no"}`);
+  lines.push(`- Objections preserved: ${report.deletionChecks.objectionsPreserved ? "yes" : "no"}`);
+  lines.push(`- Safeguards preserved: ${report.deletionChecks.safeguardsPreserved ? "yes" : "no"}`);
+  lines.push(`- Conclusions preserved: ${report.deletionChecks.conclusionsPreserved ? "yes" : "no"}`);
+  for (const missing of report.deletionChecks.missing) {
+    lines.push(`- Missing: ${missing.id} ${missing.label}`);
+  }
+  if (report.repairedDeletion) {
+    lines.push("Repair: Placeholder insertion caused mutation or deletion. Preserved original sentence and marked gaps externally.");
+  }
+  lines.push("");
 
   for (const violation of report.violations) {
     if (violation.status === "blocked") {
@@ -614,6 +721,10 @@ function formatMutationReport(report) {
     }
     lines.push(`Source: ${violation.source || "no user source"}`);
     lines.push(`Status: ${violation.status === "allowed" ? "allowed" : "blocked"}`);
+  }
+
+  if (report.deletionChecks.missing.length) {
+    lines.push("Reason: structure-only rewrite deleted protected claims.");
   }
 
   lines.push(`Accepted: ${report.accepted ? "yes" : "no"}`);
@@ -926,6 +1037,22 @@ function formatStandalonePlaceholder(gapId, patch) {
   return `[${gapId}: ${prompt}]`;
 }
 
+function formatUnresolvedNote(operation, patch) {
+  const gapIds = normalizeGapRefs(operation);
+  if (!gapIds.length) {
+    return "";
+  }
+
+  const gapById = new Map((patch.gaps || []).map((gap) => [gap.id, gap]));
+  const items = gapIds.map((gapId) => {
+    const gap = gapById.get(gapId);
+    const subject = gap?.subject || gap?.prompt || "unresolved gap";
+    return `${gapId} ${subject}`;
+  });
+
+  return `[Unresolved: ${items.join(", ")}.]`;
+}
+
 function extractPlaceholders(text) {
   return unique(matches(text, [/\[G[A-Z0-9_-]*:\s*[^\]]+\]/gi]));
 }
@@ -1014,6 +1141,232 @@ function detectRemovedObjections(draft, rewrite) {
 
     return important.length >= 2 && !important.some((word) => rewriteCanon.includes(word));
   });
+}
+
+function buildDeletionChecks(draft, rewrite, patch) {
+  const protectedItems = inferProtectedItems(draft);
+  const rewriteForMatching = substitutePlaceholdersWithGapSubjects(rewrite, patch);
+  const missing = protectedItems.filter((item) => !protectedItemPreserved(item, rewriteForMatching));
+
+  return {
+    items: protectedItems,
+    missing,
+    mainClaimPreserved: noneMissing(missing, ["main-claim", "main-recommendation"]),
+    coreConditionsPreserved: noneMissing(missing, ["core-condition", "scope-condition"]),
+    objectionsPreserved: noneMissing(missing, ["objection"]),
+    safeguardsPreserved: noneMissing(missing, ["safeguard", "mitigation", "exception", "equity-guardrail"]),
+    conclusionsPreserved: noneMissing(missing, ["value-conclusion"]),
+  };
+}
+
+function noneMissing(missing, roles) {
+  return !missing.some((item) => roles.includes(item.role));
+}
+
+function inferProtectedItems(draft) {
+  const sentences = splitSentences(draft);
+  const items = [];
+  const counters = {
+    main: 1,
+    condition: 2,
+    objection: 1,
+    concession: 1,
+    rebuttal: 1,
+    safeguard: 1,
+    mitigation: 1,
+    conclusion: 1,
+  };
+  const mainIndex = sentences.findIndex(isMainRecommendationSentence);
+
+  if (mainIndex >= 0) {
+    const sentence = sentences[mainIndex];
+    items.push({
+      id: `c${counters.main}`,
+      sentenceId: `s${mainIndex + 1}`,
+      role: "main-claim",
+      label: "main recommendation",
+      text: sentence,
+    });
+
+    for (const condition of extractCoreConditions(sentence)) {
+      items.push({
+        id: `c${counters.condition}`,
+        sentenceId: `s${mainIndex + 1}`,
+        role: "core-condition",
+        label: `${condition} condition`,
+        text: condition,
+      });
+      counters.condition += 1;
+    }
+  }
+
+  sentences.forEach((sentence, index) => {
+    const sentenceId = `s${index + 1}`;
+
+    if (/\b(worry|concern|object|objection|fear)\b/i.test(sentence)) {
+      items.push({ id: `o${counters.objection++}`, sentenceId, role: "objection", label: "objection", text: sentence });
+    }
+
+    if (/^\s*(that concern matters|this concern matters|although|even if|conced)\b/i.test(sentence)) {
+      items.push({ id: `x${counters.concession++}`, sentenceId, role: "concession", label: "concession", text: sentence });
+    }
+
+    if (/^\s*(but|however)\b/i.test(sentence) && !isMainRecommendationSentence(sentence)) {
+      items.push({ id: `rb${counters.rebuttal++}`, sentenceId, role: "rebuttal", label: "rebuttal", text: sentence });
+    }
+
+    if (/\b(should not|must not|should be able to|review|edit|override|challenge|safeguard|guardrail)\b/i.test(sentence)) {
+      items.push({ id: `s${counters.safeguard++}`, sentenceId, role: "safeguard", label: "safeguard", text: sentence });
+    }
+
+    if (/\b(mitigat|not disadvantage|disadvantage|pause|fallback|alternative|accommodation|exempt)\b/i.test(sentence)) {
+      items.push({ id: `m${counters.mitigation++}`, sentenceId, role: "mitigation", label: "mitigation", text: sentence });
+    }
+
+    if (/\btherefore\b/i.test(sentence) || /\b(fair|practical|necessary)\b/i.test(sentence)) {
+      items.push({ id: `k${counters.conclusion++}`, sentenceId, role: "value-conclusion", label: "value conclusion", text: sentence });
+    }
+  });
+
+  return dedupeProtectedItems(items);
+}
+
+function dedupeProtectedItems(items) {
+  const seen = new Set();
+  const result = [];
+
+  for (const item of items) {
+    const key = `${item.id}:${item.role}:${canonical(item.text)}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(item);
+    }
+  }
+
+  return result;
+}
+
+function isMainRecommendationSentence(sentence) {
+  return /\b(should|must|recommend|ought to|needs to)\b/i.test(sentence)
+    && /\b(policy|hospital|city|school|company|assistant|system|program|mandate|use|require|allow|deploy|create|install)\b/i.test(sentence);
+}
+
+function extractCoreConditions(sentence) {
+  const match = sentence.match(/\bonly if\s+(.+?)(?:\.|$)/i)
+    || sentence.match(/\bprovided that\s+(.+?)(?:\.|$)/i)
+    || sentence.match(/\bso long as\s+(.+?)(?:\.|$)/i);
+
+  if (!match) {
+    return [];
+  }
+
+  return unique(match[1]
+    .replace(/\bdo not suffer\b/gi, "")
+    .split(/\s*,\s*|\s+and\s+/i)
+    .map((item) => item.trim().replace(/^and\s+/i, "").replace(/\s+do not suffer$/i, ""))
+    .filter((item) => canonical(item).length > 0));
+}
+
+function protectedItemPreserved(item, rewrite) {
+  if (isPlaceholderOnly(rewrite)) {
+    return false;
+  }
+
+  const rewriteCanon = canonical(rewrite);
+  const itemCanon = canonical(item.text);
+
+  if (!itemCanon) {
+    return true;
+  }
+
+  if (rewriteCanon.includes(itemCanon)) {
+    return true;
+  }
+
+  const keywords = protectedKeywords(item.text);
+  if (!keywords.length) {
+    return true;
+  }
+
+  const present = keywords.filter((word) => rewriteCanon.includes(word));
+  const threshold = item.role === "core-condition" || item.role === "scope-condition"
+    ? Math.max(1, Math.ceil(keywords.length * 0.75))
+    : Math.max(2, Math.ceil(keywords.length * 0.55));
+
+  return present.length >= threshold;
+}
+
+function protectedKeywords(text) {
+  return unique(canonical(text)
+    .split(" ")
+    .filter((word) => word.length > 3 && !STOP_WORDS.has(word)));
+}
+
+function deletionKindForRole(role) {
+  if (role === "main-claim" || role === "main-recommendation") {
+    return "deleted-main-claim";
+  }
+  if (role === "core-condition" || role === "scope-condition") {
+    return "deleted-condition";
+  }
+  if (role === "objection") {
+    return "deleted-objection";
+  }
+  if (role === "concession") {
+    return "deleted-concession";
+  }
+  if (role === "rebuttal") {
+    return "deleted-rebuttal";
+  }
+  if (role === "mitigation") {
+    return "deleted-mitigation";
+  }
+  if (role === "value-conclusion") {
+    return "deleted-value-conclusion";
+  }
+  return "deleted-safeguard";
+}
+
+function isPlaceholderOnly(text) {
+  const stripped = stripPlaceholders(text)
+    .replace(/\[(?:undefined|unresolved)(?::[^\]]*)?\]/gi, "")
+    .trim();
+  return stripped.length === 0 && /\[(?:G[A-Z0-9_-]*:|undefined\b|unresolved\b)/i.test(text || "");
+}
+
+function protectedRewriteText(operation) {
+  if (Array.isArray(operation.clauses)) {
+    return operation.clauses.join(" ");
+  }
+  if (Array.isArray(operation.texts)) {
+    return operation.texts.join(" ");
+  }
+  return operation.text || "";
+}
+
+function repairProtectedDeletions(draft, rewrite, report) {
+  let repaired = rewrite;
+  let changed = false;
+  const missingBySentence = new Map();
+
+  for (const item of report.deletionChecks.missing) {
+    if (!missingBySentence.has(item.sentenceId)) {
+      missingBySentence.set(item.sentenceId, item);
+    }
+  }
+
+  for (const item of missingBySentence.values()) {
+    if (!protectedItemPreserved(item, repaired)) {
+      repaired = `${item.text}\n\n${repaired || ""}`.trim();
+      changed = true;
+    }
+  }
+
+  return { text: `${repaired.trim()}\n`, repaired: changed };
+}
+
+function isDeletionPreflightError(error) {
+  return /deleted-|Protected sentence|standalone placeholder|undefined placeholder/.test(error);
 }
 
 function extractNamedEntities(text) {
@@ -1220,6 +1573,73 @@ function runSelfTests() {
 
   assert(!mutation.report.accepted, "free-form invalid rewrite should fail mutation");
   assert(hasKind(mutation.report, "added-threshold"), "mutation should flag added threshold");
+
+  const hospitalDraft = "The hospital should use an AI scheduling assistant to create nurse schedules, but only if patient coverage, nurse fairness, and emergency staffing do not suffer.";
+  fs.writeFileSync(draftPath, hospitalDraft, "utf8");
+  fs.writeFileSync(rewritePath, "[undefined: fill missing information]\n", "utf8");
+  const deletedMainClaim = mutationCommand({ draft: draftPath, rewrite: rewritePath, mode: "structure_only" });
+
+  assert(!deletedMainClaim.report.accepted, "deleted main claim should fail mutation");
+  assert(hasKind(deletedMainClaim.report, "deleted-main-claim"), "mutation should flag deleted main claim");
+  assert(hasKind(deletedMainClaim.report, "deleted-condition"), "mutation should flag deleted core conditions");
+  assert(!deletedMainClaim.report.deletionChecks.mainClaimPreserved, "main claim preservation check should fail");
+  assert(!deletedMainClaim.report.deletionChecks.coreConditionsPreserved, "condition preservation check should fail");
+
+  fs.writeFileSync(rewritePath, `${hospitalDraft}\n`, "utf8");
+  const preservedMainClaim = mutationCommand({ draft: draftPath, rewrite: rewritePath, mode: "structure_only" });
+  assert(preservedMainClaim.report.accepted, "preserved main claim should pass deletion checks");
+  assert(preservedMainClaim.report.deletionChecks.mainClaimPreserved, "main claim preservation check should pass");
+  assert(preservedMainClaim.report.deletionChecks.coreConditionsPreserved, "condition preservation check should pass");
+
+  fs.writeFileSync(
+    invalidPatchPath,
+    JSON.stringify(
+      {
+        mode: "structure_only",
+        operations: [
+          {
+            op: "rephrase",
+            sentenceId: "s1",
+            provenance: ["BRACKETED_GAP"],
+            text: "[undefined: fill missing information]",
+          },
+        ],
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+  const deletedPatch = validatePatchCommand({ draft: draftPath, patch: invalidPatchPath });
+  assert(!deletedPatch.accepted, "placeholder replacement of protected main claim should be blocked");
+
+  fs.writeFileSync(
+    validPatchPath,
+    JSON.stringify(
+      {
+        mode: "structure_only",
+        gaps: [
+          { id: "G1", type: "threshold-needed", subject: "patient coverage", prompt: "define patient coverage standard" },
+          { id: "G2", type: "threshold-needed", subject: "nurse fairness", prompt: "define nurse fairness standard" },
+          { id: "G3", type: "threshold-needed", subject: "emergency staffing", prompt: "define emergency staffing standard" },
+        ],
+        operations: [
+          {
+            op: "mark-unresolved",
+            sentenceId: "s1",
+            gaps: ["G1", "G2", "G3"],
+          },
+        ],
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+  const unresolvedPatch = runCommand({ draft: draftPath, patch: validPatchPath, rewrite: rewritePath, report: reportPath });
+  assert(unresolvedPatch.report.accepted, "mark-unresolved should preserve protected main claim");
+  assert(unresolvedPatch.rewrite.includes("The hospital should use an AI scheduling assistant"), "mark-unresolved should keep original sentence");
+  assert(unresolvedPatch.rewrite.includes("[Unresolved: G1 patient coverage"), "mark-unresolved should list gaps externally");
 
   fs.writeFileSync(draftPath, "Students need a reliable emergency contact method.", "utf8");
   fs.writeFileSync(

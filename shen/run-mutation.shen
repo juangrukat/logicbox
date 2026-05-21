@@ -4,10 +4,11 @@
   Facts -> (append (collect-extraction-contract-violations Facts)
            (append (collect-decomposition-needed Facts)
            (append (collect-value-criteria-needed Facts)
+           (append (collect-deleted-protected Facts)
            (append (collect-modality-mutations Facts)
            (append (collect-scope-mutations Facts)
            (append (collect-source-mutations Facts)
-                   (collect-target-mutations Facts))))))))
+                   (collect-target-mutations Facts)))))))))
 
 (define print-flags
   [] -> (output "[]~%")
