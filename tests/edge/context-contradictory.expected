@@ -1,2 +1,2 @@
 [context-conflict all-users-experts most-users-novices]
-[plan-incomplete p1]
+[plan-status p1 needs-user-input]

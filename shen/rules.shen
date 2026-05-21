@@ -153,7 +153,27 @@
   X [[criteria-status X specified] | _] -> true
   X [[criteria-status X defined] | _] -> true
   X [[criteria-status X shown] | _] -> true
+  X [[criteria-status X stated] | _] -> true
+  X [[criteria-status X grounded] | _] -> true
   X [_ | Rest] -> (criteria-known? X Rest))
+
+(define criteria-stated?
+  X [] -> false
+  X [[criteria-status X specified] | _] -> true
+  X [[criteria-status X defined] | _] -> true
+  X [[criteria-status X stated] | _] -> true
+  X [[definition X _] | _] -> true
+  X [_ | Rest] -> (criteria-stated? X Rest))
+
+(define criteria-grounded?
+  X Facts -> (criteria-grounded-h X Facts Facts))
+
+(define criteria-grounded-h
+  X [] Facts -> false
+  X [[criteria-status X shown] | _] Facts -> true
+  X [[criteria-status X grounded] | _] Facts -> true
+  X [[conclusion K X] | _] Facts -> (conclusion-supported? K Facts Facts)
+  X [_ | Rest] Facts -> (criteria-grounded-h X Rest Facts))
 
 (define source-condition-known?
   M [] -> false
@@ -258,11 +278,17 @@
 (define plan-flag?
   P [precomputed-flag clear-enough P] Facts -> true
   P [precomputed-flag plan-incomplete P] Facts -> true
+  P [precomputed-flag plan-status P needs-user-input] Facts -> true
+  P [precomputed-flag plan-status P needs-evidence] Facts -> true
+  P [precomputed-flag plan-status P needs-reconciliation] Facts -> true
   P [precomputed-flag missing-mechanism C] Facts -> (claim-belongs-to-plan? P C Facts)
   P [precomputed-flag missing-context C _] Facts -> (claim-belongs-to-plan? P C Facts)
   P [extraction-contract-violation _] Facts -> true
   P [definition-needed _] Facts -> true
   P [decomposition-needed _] Facts -> true
+  P [value-criteria-missing _] Facts -> true
+  P [value-criteria-stated _] Facts -> false
+  P [value-criteria-grounded _] Facts -> false
   P [value-criteria-needed _ _] Facts -> true
   P [mechanism-needs-causal-path _] Facts -> true
   P [undefined-term X] Facts -> false
@@ -292,6 +318,11 @@
   P [modality-mixed C] Facts -> (claim-belongs-to-plan? P C Facts)
   P [unresolved-objection C _] Facts -> (claim-belongs-to-plan? P C Facts)
   P [mitigation-needs-sufficiency-check _ O] Facts -> true
+  P [tension benefit-undermined C _ _] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [tension uniform-rule-vs-exception _ _] Facts -> true
+  P [tension subgroup-rule-conflicts-with-policy C _ _] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [mitigation-needs-equivalence-check _ _] Facts -> true
+  P [overclaim necessity-counterfactual K _] Facts -> (conclusion-belongs-to-plan? P K Facts)
   P [analogy-needs-comparability _] Facts -> true
   P [popularity-weak-support _ C] Facts -> (claim-belongs-to-plan? P C Facts)
   P [exception-boundary-needed _] Facts -> true
@@ -306,6 +337,28 @@
 (define plan-has-flag?
   P [] Facts -> false
   P [Flag | Rest] Facts -> (if (plan-flag? P Flag Facts) true (plan-has-flag? P Rest Facts)))
+
+(define plan-has-evidence-needed?
+  P [] Facts -> false
+  P [[evidence-needed _ _] | Rest] Facts -> true
+  P [[missing-context C _] | Rest] Facts -> (if (claim-belongs-to-plan? P C Facts) true (plan-has-evidence-needed? P Rest Facts))
+  P [_ | Rest] Facts -> (plan-has-evidence-needed? P Rest Facts))
+
+(define plan-has-reconciliation-needed?
+  P [] Facts -> false
+  P [[tension benefit-undermined C _ _] | Rest] Facts -> (if (claim-belongs-to-plan? P C Facts) true (plan-has-reconciliation-needed? P Rest Facts))
+  P [[tension subgroup-rule-conflicts-with-policy C _ _] | Rest] Facts -> (if (claim-belongs-to-plan? P C Facts) true (plan-has-reconciliation-needed? P Rest Facts))
+  P [[tension uniform-rule-vs-exception _ _] | Rest] Facts -> true
+  P [[mitigation-needs-equivalence-check _ _] | Rest] Facts -> true
+  P [[overclaim necessity-counterfactual K _] | Rest] Facts -> (if (conclusion-belongs-to-plan? P K Facts) true (plan-has-reconciliation-needed? P Rest Facts))
+  P [_ | Rest] Facts -> (plan-has-reconciliation-needed? P Rest Facts))
+
+(define incomplete-plan-status
+  P Facts -> (if (plan-has-reconciliation-needed? P (blocking-flags Facts) Facts)
+              [[plan-status P needs-reconciliation]]
+              (if (plan-has-evidence-needed? P (blocking-flags Facts) Facts)
+              [[plan-status P needs-user-input] [plan-status P needs-evidence]]
+              [[plan-status P needs-user-input]])))
 
 (define no-flags?
   [] -> true
@@ -343,24 +396,31 @@
   [[decomposition-candidate X] | Rest] -> [[decomposition-needed X] | (collect-decomposition-needed Rest)]
   [_ | Rest] -> (collect-decomposition-needed Rest))
 
-(define collect-value-criteria-needed-h
+(define collect-value-criteria-status-h
   [] Facts -> []
-  [[value-criteria-candidate X Value] | Rest] Facts -> (if (criteria-known? X Facts)
-                                                         (collect-value-criteria-needed-h Rest Facts)
-                                                         [[value-criteria-needed X Value] | (collect-value-criteria-needed-h Rest Facts)])
-  [[value-type X Value] | Rest] Facts -> (if (criteria-known? X Facts)
-                                           (collect-value-criteria-needed-h Rest Facts)
-                                           [[value-criteria-needed X Value] | (collect-value-criteria-needed-h Rest Facts)])
-  [_ | Rest] Facts -> (collect-value-criteria-needed-h Rest Facts))
+  [[value-criteria-candidate X Value] | Rest] Facts -> (if (criteria-grounded? X Facts)
+                                                         [[value-criteria-grounded X] | (collect-value-criteria-status-h Rest Facts)]
+                                                         (if (criteria-stated? X Facts)
+                                                          [[value-criteria-stated X] | (collect-value-criteria-status-h Rest Facts)]
+                                                          [[value-criteria-missing X] | (collect-value-criteria-status-h Rest Facts)]))
+  [[value-type X Value] | Rest] Facts -> (if (criteria-grounded? X Facts)
+                                           [[value-criteria-grounded X] | (collect-value-criteria-status-h Rest Facts)]
+                                           (if (criteria-stated? X Facts)
+                                            [[value-criteria-stated X] | (collect-value-criteria-status-h Rest Facts)]
+                                            [[value-criteria-missing X] | (collect-value-criteria-status-h Rest Facts)]))
+  [_ | Rest] Facts -> (collect-value-criteria-status-h Rest Facts))
 
 (define collect-value-criteria-needed
-  Facts -> (collect-value-criteria-needed-h Facts Facts))
+  Facts -> (collect-value-criteria-status-h Facts Facts))
 
 (define collect-precomputed-flags
   [] -> []
   [[extraction-contract-violation X] | Rest] -> [[precomputed-flag extraction-contract-violation X] | (collect-precomputed-flags Rest)]
   [[definition-needed X] | Rest] -> [[precomputed-flag definition-needed X] | (collect-precomputed-flags Rest)]
   [[decomposition-needed X] | Rest] -> [[precomputed-flag decomposition-needed X] | (collect-precomputed-flags Rest)]
+  [[value-criteria-missing X] | Rest] -> [[precomputed-flag value-criteria-missing X] | (collect-precomputed-flags Rest)]
+  [[value-criteria-stated X] | Rest] -> [[precomputed-flag value-criteria-stated X] | (collect-precomputed-flags Rest)]
+  [[value-criteria-grounded X] | Rest] -> [[precomputed-flag value-criteria-grounded X] | (collect-precomputed-flags Rest)]
   [[value-criteria-needed X V] | Rest] -> [[precomputed-flag value-criteria-needed X V] | (collect-precomputed-flags Rest)]
   [[mechanism-needs-causal-path M] | Rest] -> [[precomputed-flag mechanism-needs-causal-path M] | (collect-precomputed-flags Rest)]
   [[undefined-term X] | Rest] -> [[precomputed-flag undefined-term X] | (collect-precomputed-flags Rest)]
@@ -388,6 +448,11 @@
   [[modality-mixed C] | Rest] -> [[precomputed-flag modality-mixed C] | (collect-precomputed-flags Rest)]
   [[unresolved-objection C O] | Rest] -> [[precomputed-flag unresolved-objection C O] | (collect-precomputed-flags Rest)]
   [[mitigation-needs-sufficiency-check M O] | Rest] -> [[precomputed-flag mitigation-needs-sufficiency-check M O] | (collect-precomputed-flags Rest)]
+  [[tension benefit-undermined C Benefit Cond] | Rest] -> [[precomputed-flag tension benefit-undermined C Benefit Cond] | (collect-precomputed-flags Rest)]
+  [[tension uniform-rule-vs-exception R E] | Rest] -> [[precomputed-flag tension uniform-rule-vs-exception R E] | (collect-precomputed-flags Rest)]
+  [[tension subgroup-rule-conflicts-with-policy C Rule Group] | Rest] -> [[precomputed-flag tension subgroup-rule-conflicts-with-policy C Rule Group] | (collect-precomputed-flags Rest)]
+  [[mitigation-needs-equivalence-check M O] | Rest] -> [[precomputed-flag mitigation-needs-equivalence-check M O] | (collect-precomputed-flags Rest)]
+  [[overclaim necessity-counterfactual K Ground] | Rest] -> [[precomputed-flag overclaim necessity-counterfactual K Ground] | (collect-precomputed-flags Rest)]
   [[analogy-needs-comparability A] | Rest] -> [[precomputed-flag analogy-needs-comparability A] | (collect-precomputed-flags Rest)]
   [[popularity-weak-support P C] | Rest] -> [[precomputed-flag popularity-weak-support P C] | (collect-precomputed-flags Rest)]
   [[exception-boundary-needed E] | Rest] -> [[precomputed-flag exception-boundary-needed E] | (collect-precomputed-flags Rest)]
@@ -401,6 +466,7 @@
   [[target-mutation C R Old New] | Rest] -> [[precomputed-flag target-mutation C R Old New] | (collect-precomputed-flags Rest)]
   [[plan-incomplete P] | Rest] -> [[precomputed-flag plan-incomplete P] | (collect-precomputed-flags Rest)]
   [[clear-enough P] | Rest] -> [[precomputed-flag clear-enough P] | (collect-precomputed-flags Rest)]
+  [[plan-status P Status] | Rest] -> [[precomputed-flag plan-status P Status] | (collect-precomputed-flags Rest)]
   [_ | Rest] -> (collect-precomputed-flags Rest))
 
 (define collect-missing-mechanisms-h
@@ -755,13 +821,122 @@
 
 (define collect-mitigation-sufficiency-h
   [] Facts -> []
-  [[mitigates M O] | Rest] Facts -> (if (sufficiency-known? M Facts)
+  [[mitigates M O] | Rest] Facts -> (if (needs-equivalence-check? M Facts)
                                       (collect-mitigation-sufficiency-h Rest Facts)
-                                      [[mitigation-needs-sufficiency-check M O] | (collect-mitigation-sufficiency-h Rest Facts)])
+                                      (if (sufficiency-known? M Facts)
+                                      (collect-mitigation-sufficiency-h Rest Facts)
+                                      [[mitigation-needs-sufficiency-check M O] | (collect-mitigation-sufficiency-h Rest Facts)]))
   [_ | Rest] Facts -> (collect-mitigation-sufficiency-h Rest Facts))
 
 (define collect-mitigation-sufficiency
   Facts -> (collect-mitigation-sufficiency-h Facts Facts))
+
+(define condition-undermines-benefit?
+  Cond Benefit [] -> false
+  Cond Benefit [[undermines Cond Benefit] | _] -> true
+  Cond Benefit [_ | Rest] -> (condition-undermines-benefit? Cond Benefit Rest))
+
+(define collect-benefit-undermined-h
+  [] Facts -> []
+  [[benefit C Benefit] | Rest] Facts -> (append (collect-benefit-undermined-for C Benefit Facts Facts)
+                                                (collect-benefit-undermined-h Rest Facts))
+  [_ | Rest] Facts -> (collect-benefit-undermined-h Rest Facts))
+
+(define collect-benefit-undermined-for
+  C Benefit [] Facts -> []
+  C Benefit [[policy-condition C Cond] | Rest] Facts -> (if (condition-undermines-benefit? Cond Benefit Facts)
+                                                          [[tension benefit-undermined C Benefit Cond] | (collect-benefit-undermined-for C Benefit Rest Facts)]
+                                                          (collect-benefit-undermined-for C Benefit Rest Facts))
+  C Benefit [_ | Rest] Facts -> (collect-benefit-undermined-for C Benefit Rest Facts))
+
+(define collect-benefit-undermined
+  Facts -> (collect-benefit-undermined-h Facts Facts))
+
+(define no-exceptions-rule?
+  R [] -> false
+  R [[policy-rule R no-manager-exceptions] | _] -> true
+  R [[policy-rule R no-exceptions] | _] -> true
+  R [_ | Rest] -> (no-exceptions-rule? R Rest))
+
+(define collect-uniform-exception-conflicts-h
+  [] Facts -> []
+  [[exception-rule E] | Rest] Facts -> (append (collect-uniform-exception-conflicts-for E Facts Facts)
+                                               (collect-uniform-exception-conflicts-h Rest Facts))
+  [_ | Rest] Facts -> (collect-uniform-exception-conflicts-h Rest Facts))
+
+(define collect-uniform-exception-conflicts-for
+  E [] Facts -> []
+  E [[policy-rule R uniform-rules] | Rest] Facts -> (if (no-exceptions-rule? R Facts)
+                                                      [[tension uniform-rule-vs-exception R E] | (collect-uniform-exception-conflicts-for E Rest Facts)]
+                                                      (collect-uniform-exception-conflicts-for E Rest Facts))
+  E [_ | Rest] Facts -> (collect-uniform-exception-conflicts-for E Rest Facts))
+
+(define collect-uniform-exception-conflicts
+  Facts -> (collect-uniform-exception-conflicts-h Facts Facts))
+
+(define conflicts-with-target?
+  Rule Target [] -> false
+  Rule Target [[conflicts-with-target Rule Target] | _] -> true
+  Rule Target [_ | Rest] -> (conflicts-with-target? Rule Target Rest))
+
+(define collect-subgroup-policy-conflicts-h
+  [] Facts -> []
+  [[target C Target] | Rest] Facts -> (if (claim-node? C Facts)
+                                        (append (collect-subgroup-policy-conflicts-for C Target Facts Facts)
+                                                (collect-subgroup-policy-conflicts-h Rest Facts))
+                                        (collect-subgroup-policy-conflicts-h Rest Facts))
+  [_ | Rest] Facts -> (collect-subgroup-policy-conflicts-h Rest Facts))
+
+(define collect-subgroup-policy-conflicts-for
+  C Target [] Facts -> []
+  C Target [[group-rule Rule Group] | Rest] Facts -> (if (conflicts-with-target? Rule Target Facts)
+                                                       [[tension subgroup-rule-conflicts-with-policy C Rule Group] | (collect-subgroup-policy-conflicts-for C Target Rest Facts)]
+                                                       (collect-subgroup-policy-conflicts-for C Target Rest Facts))
+  C Target [_ | Rest] Facts -> (collect-subgroup-policy-conflicts-for C Target Rest Facts))
+
+(define collect-subgroup-policy-conflicts
+  Facts -> (collect-subgroup-policy-conflicts-h Facts Facts))
+
+(define equivalence-shown?
+  M [] -> false
+  M [[equivalence-status M shown] | _] -> true
+  M [[equivalence-status M equivalent] | _] -> true
+  M [_ | Rest] -> (equivalence-shown? M Rest))
+
+(define needs-equivalence-check?
+  M [] -> false
+  M [[mitigation-type M office-fallback] | _] -> true
+  M [[mitigation-type M fallback] | _] -> true
+  M [_ | Rest] -> (needs-equivalence-check? M Rest))
+
+(define collect-mitigation-equivalence-h
+  [] Facts -> []
+  [[mitigates M O] | Rest] Facts -> (if (needs-equivalence-check? M Facts)
+                                      (if (equivalence-shown? M Facts)
+                                       (collect-mitigation-equivalence-h Rest Facts)
+                                       [[mitigation-needs-equivalence-check M O] | (collect-mitigation-equivalence-h Rest Facts)])
+                                      (collect-mitigation-equivalence-h Rest Facts))
+  [_ | Rest] Facts -> (collect-mitigation-equivalence-h Rest Facts))
+
+(define collect-mitigation-equivalence
+  Facts -> (collect-mitigation-equivalence-h Facts Facts))
+
+(define evidence-positive?
+  X [] -> false
+  X [[evidence-status X shown] | _] -> true
+  X [[evidence-status X provided] | _] -> true
+  X [[evidence-status X present] | _] -> true
+  X [_ | Rest] -> (evidence-positive? X Rest))
+
+(define collect-necessity-overclaims-h
+  [] Facts -> []
+  [[necessity-ground K Ground] | Rest] Facts -> (if (evidence-positive? Ground Facts)
+                                                  (collect-necessity-overclaims-h Rest Facts)
+                                                  [[overclaim necessity-counterfactual K Ground] | (collect-necessity-overclaims-h Rest Facts)])
+  [_ | Rest] Facts -> (collect-necessity-overclaims-h Rest Facts))
+
+(define collect-necessity-overclaims
+  Facts -> (collect-necessity-overclaims-h Facts Facts))
 
 (define collect-analogy-comparability-h
   [] Facts -> []
@@ -914,6 +1089,11 @@
            (append (collect-missing-context Facts)
            (append (collect-context-conflicts Facts)
            (append (collect-context-scope-leaks Facts)
+           (append (collect-benefit-undermined Facts)
+           (append (collect-uniform-exception-conflicts Facts)
+           (append (collect-subgroup-policy-conflicts Facts)
+           (append (collect-mitigation-equivalence Facts)
+           (append (collect-necessity-overclaims Facts)
            (append (collect-conclusion-stronger-than-premises Facts)
            (append (collect-conclusion-stronger-than-ground Facts)
            (append (collect-claims-without-ground Facts)
@@ -940,17 +1120,17 @@
            (append (collect-modality-mutations Facts)
            (append (collect-scope-mutations Facts)
            (append (collect-source-mutations Facts)
-                   (collect-target-mutations Facts))))))))))))))))))))))))))))))))))))))))))
+                   (collect-target-mutations Facts)))))))))))))))))))))))))))))))))))))))))))))))
 
 (define collect-plan-status-h
   [] Facts -> []
   [[plan P] | Rest] Facts -> (if (plan-membership-mode? Facts)
                                (if (plan-has-flag? P (blocking-flags Facts) Facts)
-                                [[plan-incomplete P] | (collect-plan-status-h Rest Facts)]
-                                [[clear-enough P] | (collect-plan-status-h Rest Facts)])
+                                (append (incomplete-plan-status P Facts) (collect-plan-status-h Rest Facts))
+                                [[plan-status P argument-clear-enough] | (collect-plan-status-h Rest Facts)])
                                (if (no-flags? (blocking-flags Facts))
-                                [[clear-enough P] | (collect-plan-status-h Rest Facts)]
-                                [[plan-incomplete P] | (collect-plan-status-h Rest Facts)]))
+                                [[plan-status P argument-clear-enough] | (collect-plan-status-h Rest Facts)]
+                                (append (incomplete-plan-status P Facts) (collect-plan-status-h Rest Facts))))
   [_ | Rest] Facts -> (collect-plan-status-h Rest Facts))
 
 (define collect-plan-status

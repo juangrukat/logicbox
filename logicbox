@@ -11,6 +11,7 @@ REWRITE_PATCH="$WORK/rewrite-patch.json"
 REWRITE="$WORK/rewrite.md"
 PREFLIGHT_FACTS="$OUT/.preflight-facts.shen"
 REWRITE_REPORT="$OUT/rewrite-report.md"
+SHEN_BEFORE_REWRITE="$OUT/shen-before-rewrite.txt"
 
 usage() {
   cat <<'EOF'
@@ -147,11 +148,53 @@ case "${1:-help}" in
     ;;
   rewrite)
     ensure_dirs
-    node "$ROOT/scripts/rewrite-safety.js" run \
-      --draft "$WORK/draft.txt" \
-      --patch "$REWRITE_PATCH" \
-      --rewrite "$REWRITE" \
-      --report "$REWRITE_REPORT"
+    mode="$(node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); console.log(p.mode||"structure_only")' "$REWRITE_PATCH")"
+    if [[ "$mode" == "rewrite_with_user_facts" && -f "$OUT/shen-output.txt" ]]; then
+      cp "$OUT/shen-output.txt" "$SHEN_BEFORE_REWRITE"
+    elif [[ "$mode" == "rewrite_with_user_facts" ]]; then
+      : > "$SHEN_BEFORE_REWRITE"
+    fi
+    if [[ "$mode" == "rewrite_with_user_facts" ]]; then
+      node "$ROOT/scripts/rewrite-safety.js" run \
+        --draft "$WORK/draft.txt" \
+        --patch "$REWRITE_PATCH" \
+        --rewrite "$REWRITE" \
+        --report "$REWRITE_REPORT" \
+        > "$OUT/.rewrite-apply-report.txt"
+    else
+      node "$ROOT/scripts/rewrite-safety.js" run \
+        --draft "$WORK/draft.txt" \
+        --patch "$REWRITE_PATCH" \
+        --rewrite "$REWRITE" \
+        --report "$REWRITE_REPORT"
+    fi
+    if [[ "$mode" == "rewrite_with_user_facts" ]]; then
+      node "$ROOT/scripts/rewrite-safety.js" mutation \
+        --draft "$WORK/draft.txt" \
+        --rewrite "$REWRITE" \
+        --patch "$REWRITE_PATCH" \
+        > "$OUT/mutation-output.txt"
+      if [[ ! -x "$SHEN" ]]; then
+        echo "Could not find shen-sbcl at: $SHEN" >&2
+        echo "Set SHEN_SBCL=/path/to/shen-sbcl and try again." >&2
+        exit 1
+      fi
+      node "$ROOT/scripts/preflight-facts.js" "$FACTS" > "$PREFLIGHT_FACTS"
+      "$SHEN" \
+        -l "$FACTS" \
+        -l "$PREFLIGHT_FACTS" \
+        -l "$ROOT/shen/rules.shen" \
+        -l "$ROOT/shen/run.shen" \
+        > "$OUT/.shen-raw-output.txt"
+      capture_logicbox_output "$OUT/.shen-raw-output.txt" "$OUT/shen-output.txt"
+      node "$ROOT/scripts/rewrite-safety.js" recheck-report \
+        --patch "$REWRITE_PATCH" \
+        --rewrite "$REWRITE" \
+        --before "$SHEN_BEFORE_REWRITE" \
+        --after "$OUT/shen-output.txt" \
+        --mutation "$OUT/mutation-output.txt" \
+        --report "$REWRITE_REPORT"
+    fi
     ;;
   rewrite-mutation)
     ensure_dirs
@@ -391,7 +434,7 @@ EOF
 
     echo "fuzz-scope-identical:"
     out="$(run_fuzz scope-identical write_scope_same_model)"
-    assert_line "$out" "[clear-enough p1]" "identical scopes should be clear" || failures=$((failures + 1))
+    assert_line "$out" "[plan-status p1 argument-clear-enough]" "identical scopes should be clear" || failures=$((failures + 1))
     assert_no_text "$out" "[scope-conflict" "identical scopes should not conflict" || failures=$((failures + 1))
 
     for count in 0 1 2 3 4; do
@@ -399,10 +442,10 @@ EOF
       out="$(run_fuzz stage-count-$count write_stage_model "$count")"
       if [[ "$count" -lt 3 ]]; then
         assert_line "$out" "[stage-chain-too-short c1 $count 3]" "stage count $count should be too short" || failures=$((failures + 1))
-        assert_line "$out" "[plan-incomplete p1]" "short stage count should be incomplete" || failures=$((failures + 1))
+        assert_line "$out" "[plan-status p1 needs-user-input]" "short stage count should be incomplete" || failures=$((failures + 1))
       else
         assert_no_text "$out" "[stage-chain-too-short" "stage count $count should not be too short" || failures=$((failures + 1))
-        assert_line "$out" "[clear-enough p1]" "stage count $count should be clear" || failures=$((failures + 1))
+        assert_line "$out" "[plan-status p1 argument-clear-enough]" "stage count $count should be clear" || failures=$((failures + 1))
       fi
     done
 
@@ -413,7 +456,7 @@ EOF
         assert_line "$out" "[missing-context c1 feedback-reliable]" "unknown context should be missing" || failures=$((failures + 1))
       else
         assert_no_text "$out" "[missing-context" "known context should not be missing" || failures=$((failures + 1))
-        assert_line "$out" "[clear-enough p1]" "known context should be clear" || failures=$((failures + 1))
+        assert_line "$out" "[plan-status p1 argument-clear-enough]" "known context should be clear" || failures=$((failures + 1))
       fi
     done
 
@@ -424,7 +467,7 @@ EOF
         assert_line "$out" "[conclusion-stronger-than-ground g1 k1 probable certain]" "certain conclusion should outrun probable ground" || failures=$((failures + 1))
       else
         assert_no_text "$out" "[conclusion-stronger-than-ground" "matching modality should not outrun ground" || failures=$((failures + 1))
-        assert_line "$out" "[clear-enough p1]" "matching modality should be clear" || failures=$((failures + 1))
+        assert_line "$out" "[plan-status p1 argument-clear-enough]" "matching modality should be clear" || failures=$((failures + 1))
       fi
     done
 

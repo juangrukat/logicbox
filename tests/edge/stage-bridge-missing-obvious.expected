@@ -1,2 +1,2 @@
 [missing-stage-bridge c1 s1 s2]
-[plan-incomplete p1]
+[plan-status p1 needs-user-input]

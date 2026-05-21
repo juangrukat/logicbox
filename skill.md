@@ -56,7 +56,7 @@ Use Shen like a compiler during translation, not only as a final report generato
 4. Run `./logicbox check`.
 5. Treat `extraction-contract-violation`, `decomposition-needed`, malformed fact shape, and definitions already stated in the prose as repairable translation errors.
 6. Repair those facts directly, then rerun `./logicbox check`.
-7. Leave genuine argument problems in place: `value-criteria-needed`, `missing-context`, `mitigation-needs-sufficiency-check`, `claim-without-ground`, `analogy-needs-comparability`, `unclear-scope`, and evidence gaps.
+7. Leave genuine argument problems in place: `value-criteria-needed`, `missing-context`, `mitigation-needs-sufficiency-check`, `mitigation-needs-equivalence-check`, `claim-without-ground`, `analogy-needs-comparability`, `unclear-scope`, reconciliation tensions, and evidence gaps.
 8. Stop repairing when remaining flags are real argument diagnostics or require human clarification.
 
 Do not use internet research in the default structure-only loop. External research is a separate mode: evidence suggestion may name useful evidence types, and evidence augmentation may add cited external evidence only when the human requests it. External additions should be marked with facts such as `[evidence-source E external]` and `[evidence-status E suggested]`.
@@ -76,6 +76,20 @@ When asked to create a structure-only rewrite:
 11. Present the structure-only rewrite, gap list, and mutation report.
 
 In `structure_only`, never add new statistics, dates, deadlines, thresholds, percentages, named programs, proper nouns, empirical claims, causal mechanisms, implementation procedures, groups, stronger modality, or uniqueness claims. Replace those needs with placeholders such as `[G1: define size threshold]`.
+
+When asked to fill gaps with user-supplied facts:
+
+1. Use `rewrite_with_user_facts`.
+2. Accept only facts that are explicitly supplied by the human and mark them `USER_SUPPLIED`.
+3. Extract user provenance into facts such as `[user-supplied G3 slackrule]`.
+4. Do not hide consistency-relevant details only in definition strings.
+5. Add structured facts for claimed benefits, policy conditions, uniform rules, exceptions, subgroup rules, fallback mitigations, equivalence status, necessity grounds, and evidence status.
+6. Run the mutation/provenance check first.
+7. Rerun the structural Shen check after the user facts are in the fact graph.
+8. Treat `[plan-status P needs-reconciliation]` as higher priority than ordinary `needs-user-input`.
+9. Explain clearly: "Mutation check passed because the new details were user-supplied. Structural consistency check found new tensions introduced by those details."
+
+User-supplied facts are allowed mutations, but they are not automatically logically compatible with the argument.
 
 When asked to check a symbolic rewrite:
 
@@ -120,6 +134,8 @@ Shen owns symbolic facts, logic rules, derived flags, symbol consistency checks,
 Shen derives flags from facts and rules. Shen does not interpret raw prose by itself, rewrite prose, or decide real-world truth.
 
 `clear-enough` means only that the current plan has no blocking structural flags. It is not a validity judgment and not a truth claim.
+
+`needs-reconciliation` means the translation and mutation provenance may be acceptable, but accepted facts conflict with earlier claims, benefits, scope, rules, mitigations, or conclusions. Do not collapse this into `needs-user-input`, and do not treat mutation pass as argument pass.
 
 ## No Precomputed Flags
 
@@ -575,25 +591,26 @@ Do not produce flags.
 Shen should derive these first:
 
 1. extraction-contract-violation
-2. definition-needed
-3. decomposition-needed
-4. value-criteria-needed
-5. missing-mechanism
-6. mechanism-needs-causal-path
-7. mechanism-restates-source
-8. mechanism-restates-target
-9. mechanism-too-abstract
-10. unclear-modality
-11. unclear-scope
-12. conclusion-stronger-than-premises
-13. missing-context
-14. claim-without-ground
-15. stage-chain-too-short
-16. plan-incomplete or clear-enough
-17. modality-mutation
-18. scope-mutation
+2. structural breaks such as definition-needed, decomposition-needed, missing-mechanism, unclear scope/modality, stage-chain-too-short, and claim-without-ground
+3. needs-reconciliation from post-gap consistency flags
+4. needs-evidence
+5. needs-user-input
+6. argument-clear-enough
 
-The current local rules also include source and target mutation checks because they are useful for rewrite drift.
+The post-gap consistency layer should derive:
+
+- `[tension benefit-undermined C Benefit Condition]`
+- `[tension uniform-rule-vs-exception Rule Exception]`
+- `[tension subgroup-rule-conflicts-with-policy C Rule Group]`
+- `[mitigation-needs-equivalence-check Mitigation Objection]`
+- `[overclaim necessity-counterfactual Conclusion Ground]`
+
+The current local rules also include mutation checks:
+
+- `[modality-mutation C R Old New]`
+- `[scope-mutation C R Old New]`
+- `[source-mutation C R Old New]`
+- `[target-mutation C R Old New]`
 
 ## Mechanism Restatement
 

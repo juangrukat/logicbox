@@ -1,2 +1,2 @@
 [conclusion-stronger-than-ground g1 k1 possible certain]
-[plan-incomplete p1]
+[plan-status p1 needs-user-input]

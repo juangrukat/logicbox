@@ -1,2 +1,2 @@
 [claim-without-ground k1]
-[plan-incomplete p1]
+[plan-status p1 needs-user-input]

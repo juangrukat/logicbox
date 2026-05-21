@@ -1,2 +1,2 @@
-[value-criteria-needed k1 fairness]
-[plan-incomplete p1]
+[value-criteria-missing k1]
+[plan-status p1 needs-user-input]

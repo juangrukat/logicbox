@@ -1,2 +1,2 @@
 [invalid-scope f1 planetary]
-[plan-incomplete p1]
+[plan-status p1 needs-user-input]

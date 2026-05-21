@@ -127,7 +127,7 @@ Use LogicBox like a tiny compiler while translating prose:
 3. Repair compact atoms and obvious decomposition errors.
 4. Run `./logicbox check`.
 5. Repair translation errors such as `extraction-contract-violation`, `decomposition-needed`, malformed fact shape, and missing definitions already supplied by the prose.
-6. Leave real argument diagnostics in place, including `value-criteria-needed`, `missing-context`, `mitigation-needs-sufficiency-check`, `claim-without-ground`, `analogy-needs-comparability`, `unclear-scope`, and evidence gaps.
+6. Leave real argument diagnostics in place, including `value-criteria-needed`, `missing-context`, `mitigation-needs-sufficiency-check`, `mitigation-needs-equivalence-check`, `claim-without-ground`, `analogy-needs-comparability`, `unclear-scope`, reconciliation tensions, and evidence gaps.
 7. Explain only the remaining Shen-derived flags.
 
 Default mode is structure-only: no internet and no factual truth checking. Evidence suggestion and evidence augmentation can be added later as explicit modes, with external additions marked separately from the original argument.
@@ -142,7 +142,9 @@ diagnose draft
 -> preflight rewrite patch
 -> apply patch to prose
 -> mutation check
--> final rewrite + gap list
+-> structural Shen re-check when user facts fill gaps
+-> consistency/tension check for user-supplied facts
+-> final rewrite + gap list + flag delta
 ```
 
 Rewrite patches have an explicit mode:
@@ -152,6 +154,29 @@ Rewrite patches have an explicit mode:
 - `evidence_mode`: may add external facts only when they are marked as externally sourced.
 
 In `structure_only`, allowed patch operations are `keep`, `split`, `move`, `rephrase`, `surface-implicit-criterion`, `insert-placeholder`, `label`, and `mark-unresolved`.
+
+In `rewrite_with_user_facts`, allowed patch operations are `keep`, `rephrase`, `insert-user-fact`, `resolve-gap`, `mark-unresolved`, `surface-implicit-criterion`, `move`, and `split`. Every `insert-user-fact` must reference one existing gap and carry `USER_SUPPLIED` provenance.
+
+User-supplied facts are allowed mutations, but they are not automatically compatible with the argument. After gap fills, LogicBox reruns Shen and can assign `[plan-status P needs-reconciliation]` when new user facts conflict with claimed benefits, uniformity rules, subgroup treatment, fallback equivalence, or necessity claims.
+
+Do not bury consistency-relevant user answers only inside `[definition ... "..."]` strings. Extract structured facts such as:
+
+```shen
+[user-supplied G3 slackrule]
+[benefit c1 deep-work]
+[policy-condition c1 slackrule]
+[undermines slackrule deep-work]
+[policy-rule hrguides uniform-rules]
+[policy-rule hrguides no-manager-exceptions]
+[exception-rule newoffice]
+[exception-to newoffice c1]
+[group-rule newoffice new-employees]
+[conflicts-with-target newoffice threeday]
+[mitigation-type alternatives office-fallback]
+[equivalence-status alternatives unknown]
+[necessity-ground k3 quitrisk]
+[evidence-status quitrisk unknown]
+```
 
 The rewrite preflight blocks new numbers, thresholds, percentages, deadlines, named programs, proper nouns, empirical claims, comparison claims, implementation procedures, groups, stronger modality, and uniqueness claims unless they are represented as placeholders.
 
@@ -172,7 +197,7 @@ A structure-only rewrite should use the gap instead of inventing the missing fac
 The city should require large apartment buildings — [G1: define which buildings count as "large"] — to install smart cooling systems.
 ```
 
-Every changed sentence needs provenance such as `CLARIFIED`, `REORDERED`, `BRACKETED_GAP`, or `SURFACED_CRITERIA`. Unlabeled additions are rejected.
+Every changed sentence needs provenance such as `CLARIFIED`, `REORDERED`, `BRACKETED_GAP`, `SURFACED_CRITERIA`, `USER_SUPPLIED`, or `MARKED_UNRESOLVED`. Unlabeled additions are rejected.
 
 Run the safe rewrite path with:
 
@@ -184,9 +209,13 @@ Run the safe rewrite path with:
 
 The final report contains:
 
-1. Structure-only rewrite
-2. Gap list
-3. Mutation report
+1. Updated rewrite
+2. Gap status
+3. Mutation/provenance report
+4. Consistency status
+5. Structural re-check delta
+6. Remaining flags grouped by gap
+7. Next recommended action
 
 Core rule: the rewrite may reduce confusion, but it may not reduce factual uncertainty.
 
@@ -231,20 +260,29 @@ Those fields count as scoped structure. Use `scope-status` values such as `unkno
 
 ## Reading The Output
 
-`[clear-enough p1]` means the current plan has no blocking structural flags. It does not mean the argument is true.
+`[plan-status p1 argument-clear-enough]` means the current plan has no blocking structural flags. It does not mean the argument is true.
 
-`[plan-incomplete p1]` means at least one blocking issue remains.
+`[plan-status p1 needs-user-input]` means at least one blocking issue remains. `[plan-status p1 needs-evidence]` means a remaining issue needs outside support or a narrower claim.
+
+`[plan-status p1 needs-reconciliation]` means translation and mutation provenance may be clean, but accepted facts introduce a tension with the argument's structure. This status outranks ordinary `needs-user-input`; mutation pass does not imply argument pass.
 
 Common flags:
 
 - `[extraction-contract-violation X]`: the extractor packed domain meaning into an opaque atom; decompose it into fields before judging the draft.
 - `[definition-needed X]`: a legitimate concept needs an operational definition.
 - `[decomposition-needed X]`: an action or condition should be represented as primitive predicates instead of a term.
-- `[value-criteria-needed X V]`: a value conclusion such as fairness, safety, or responsibility needs criteria.
+- `[value-criteria-missing X]`: a value conclusion such as fairness, safety, or responsibility needs explicit criteria.
+- `[value-criteria-stated X]`: criteria are stated in prose, but not yet linked to grounds.
+- `[value-criteria-grounded X]`: criteria are stated and linked to supporting grounds.
 - `[missing-mechanism C]`: a causal claim lacks a represented mechanism.
 - `[mechanism-restates-source ...]`: the explanation may repeat the starting point.
 - `[mechanism-restates-target ...]`: the explanation may repeat the desired result.
 - `[missing-context C X]`: a background assumption is needed.
+- `[tension benefit-undermined C Benefit Cond]`: a condition or rule weakens a benefit the claim relies on.
+- `[tension uniform-rule-vs-exception R E]`: a uniform/no-exceptions policy conflicts with an exception.
+- `[tension subgroup-rule-conflicts-with-policy C Rule Group]`: a subgroup rule conflicts with the main policy target.
+- `[mitigation-needs-equivalence-check M O]`: a fallback mitigation is traceable but may not preserve equivalent benefit.
+- `[overclaim necessity-counterfactual K Ground]`: a necessity claim relies on an unsupported counterfactual ground.
 - `[claim-without-ground K]`: a conclusion has no represented support.
 - `[stage-chain-too-short C Count Minimum]`: a causal bridge needs more intermediate structure.
 - `[scope-missing F]`: a plan fact needs a local, section, document, or global scope.
@@ -448,6 +486,11 @@ Current Shen-derived flags:
 - `[mechanism-restates-target C Target Mechanism]`
 - `[mechanism-too-abstract C Mechanism]`
 - `[missing-context C Context]`
+- `[tension benefit-undermined C Benefit Condition]`
+- `[tension uniform-rule-vs-exception Rule Exception]`
+- `[tension subgroup-rule-conflicts-with-policy C Rule Group]`
+- `[mitigation-needs-equivalence-check Mitigation Objection]`
+- `[overclaim necessity-counterfactual Conclusion Ground]`
 - `[conclusion-stronger-than-premises Premise Conclusion OldModality NewModality]`
 - `[conclusion-stronger-than-ground Ground Conclusion OldModality NewModality]`
 - `[claim-without-ground Conclusion]`
@@ -467,6 +510,8 @@ Current Shen-derived flags:
 - `[target-mutation C R Old New]`
 
 `[clear-enough P]` is not a truth verdict. It only means this local plan has no blocking structural flags.
+
+`[plan-status P needs-reconciliation]` is the post-gap-fill consistency status. It separates "this user fact was allowed by provenance" from "this user fact still fits the argument."
 
 ## Counterexample Feedback
 

@@ -1,2 +1,2 @@
 [scope-conflict f1 f2 global local]
-[plan-incomplete p1]
+[plan-status p1 needs-user-input]

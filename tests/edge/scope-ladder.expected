@@ -1,2 +1,2 @@
 [scope-transition-conflict f1 document global]
-[plan-incomplete p1]
+[plan-status p1 needs-user-input]

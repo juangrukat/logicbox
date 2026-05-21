@@ -15,6 +15,16 @@ const STRUCTURE_ALLOWED_OPS = new Set([
   "label",
   "mark-unresolved",
 ]);
+const USER_FACT_ALLOWED_OPS = new Set([
+  "keep",
+  "split",
+  "move",
+  "rephrase",
+  "surface-implicit-criterion",
+  "insert-user-fact",
+  "resolve-gap",
+  "mark-unresolved",
+]);
 const STRUCTURE_FORBIDDEN_OPS = new Set([
   "insert-fact",
   "insert-number",
@@ -35,6 +45,8 @@ const PROVENANCE_LABELS = new Set([
   "REORDERED",
   "BRACKETED_GAP",
   "SURFACED_CRITERIA",
+  "USER_SUPPLIED",
+  "MARKED_UNRESOLVED",
 ]);
 
 const args = process.argv.slice(2);
@@ -61,6 +73,11 @@ try {
     const result = runCommand(options);
     process.stdout.write(result.reportText);
     process.exit(result.report.accepted ? 0 : 1);
+  } else if (command === "recheck-report") {
+    const options = readOptions(args.slice(1));
+    const result = recheckReportCommand(options);
+    process.stdout.write(result.reportText);
+    process.exit(result.accepted ? 0 : 1);
   } else if (command === "test") {
     runSelfTests();
   } else {
@@ -79,6 +96,7 @@ Commands:
   node scripts/rewrite-safety.js apply --draft work/draft.txt --patch work/rewrite-patch.json --rewrite work/rewrite.md
   node scripts/rewrite-safety.js mutation --draft work/draft.txt --rewrite work/rewrite.md --patch work/rewrite-patch.json
   node scripts/rewrite-safety.js run --draft work/draft.txt --patch work/rewrite-patch.json --rewrite work/rewrite.md --report output/rewrite-report.md
+  node scripts/rewrite-safety.js recheck-report --patch work/rewrite-patch.json --rewrite work/rewrite.md --before output/shen-before-rewrite.txt --after output/shen-output.txt --mutation output/rewrite-report.md --report output/gap-fill-report.md
   node scripts/rewrite-safety.js test
 `);
 }
@@ -157,6 +175,25 @@ function mutationCommand(options) {
   return { report };
 }
 
+function recheckReportCommand(options) {
+  const patch = readPatch(required(options.patch, "--patch is required"));
+  const rewrite = readText(required(options.rewrite, "--rewrite is required"));
+  const beforeFlags = readFlagFile(required(options.before, "--before is required"));
+  const afterFlags = readFlagFile(required(options.after, "--after is required"));
+  const mutationText = options.mutation && fs.existsSync(options.mutation) ? readText(options.mutation) : "";
+  const delta = buildFlagDelta(beforeFlags, afterFlags);
+  const groups = groupFlagsByGap(delta.remaining, patch);
+  const reportText = formatGapFillReport(rewrite, patch, mutationText, delta, groups);
+  const accepted = !mutationText.includes("Accepted: no");
+
+  if (options.report) {
+    ensureParentDir(options.report);
+    fs.writeFileSync(options.report, reportText, "utf8");
+  }
+
+  return { accepted, reportText, delta, groups };
+}
+
 function runCommand(options) {
   const draftPath = required(options.draft, "--draft is required");
   const patchPath = required(options.patch, "--patch is required");
@@ -213,6 +250,7 @@ function validatePatch(patch, draft) {
   }
 
   const gapIds = new Set((patch.gaps || []).map((gap) => gap.id));
+  const resolvedGapIds = new Set((patch.gaps || []).filter((gap) => hasResolvedGapAnswer(gap)).map((gap) => gap.id));
 
   for (const operation of patch.operations) {
     const op = operation.op || operation.operation;
@@ -230,6 +268,10 @@ function validatePatch(patch, draft) {
       if (!STRUCTURE_ALLOWED_OPS.has(op)) {
         errors.push(`Operation is not allowed in structure_only mode: ${op}`);
       }
+    }
+
+    if (mode === "rewrite_with_user_facts" && !USER_FACT_ALLOWED_OPS.has(op)) {
+      errors.push(`Operation is not allowed in rewrite_with_user_facts mode: ${op}`);
     }
 
     if (operation.text && op !== "keep") {
@@ -251,6 +293,10 @@ function validatePatch(patch, draft) {
         errors.push(`Operation references missing gap ${gapId}.`);
       }
     }
+
+    if (mode === "rewrite_with_user_facts") {
+      validateUserFactOperation(operation, op, gapIds, resolvedGapIds, errors);
+    }
   }
 
   for (const gap of patch.gaps || []) {
@@ -262,13 +308,45 @@ function validatePatch(patch, draft) {
   const preview = applyBestEffortPatch(draft, patch);
   const mutation = buildMutationReport(draft, preview, patch, mode);
 
-  if (mode === "structure_only" && !mutation.accepted) {
+  if ((mode === "structure_only" || mode === "rewrite_with_user_facts") && !mutation.accepted) {
     for (const violation of mutation.violations) {
-      errors.push(`Rewrite preflight blocked ${violation.kind}: ${violation.snippet}`);
+      if (violation.status === "blocked") {
+        errors.push(`Rewrite preflight blocked ${violation.kind}: ${violation.snippet}`);
+      }
     }
   }
 
   return { errors, warnings };
+}
+
+function validateUserFactOperation(operation, op, gapIds, resolvedGapIds, errors) {
+  const refs = normalizeGapRefs(operation);
+
+  if ((op === "insert-user-fact" || op === "resolve-gap") && refs.length !== 1) {
+    errors.push(`${op} must reference exactly one gap.`);
+    return;
+  }
+
+  if (op === "insert-user-fact" || op === "resolve-gap") {
+    const gapId = refs[0];
+
+    if (!gapIds.has(gapId)) {
+      return;
+    }
+
+    if (!resolvedGapIds.has(gapId) && !operation.userFact && !operation.userFactId) {
+      errors.push(`${op} references ${gapId}, but no user-supplied answer is bound to that gap.`);
+    }
+
+    const provenance = normalizeProvenance(operation.provenance);
+    if (op === "insert-user-fact" && !provenance.includes("USER_SUPPLIED")) {
+      errors.push(`insert-user-fact for ${gapId} must include USER_SUPPLIED provenance.`);
+    }
+  }
+
+  if (op === "mark-unresolved" && refs.length !== 1) {
+    errors.push("mark-unresolved must reference exactly one gap.");
+  }
 }
 
 function applyPatchToDraft(draft, patch) {
@@ -285,7 +363,11 @@ function applyPatchToDraft(draft, patch) {
       output.push(...(operation.clauses || operation.texts || []));
     } else if (op === "rephrase" || op === "surface-implicit-criterion") {
       output.push(operation.text || "");
+    } else if (op === "insert-user-fact") {
+      output.push(operation.text || operation.userFact || "");
     } else if (op === "insert-placeholder") {
+      output.push(formatStandalonePlaceholder(operation.gapId, patch));
+    } else if (op === "mark-unresolved") {
       output.push(formatStandalonePlaceholder(operation.gapId, patch));
     }
   }
@@ -308,30 +390,32 @@ function buildMutationReport(draft, rewrite, patch, mode) {
   const nonPlaceholderCandidate = analyzeText(nonPlaceholderRewrite);
   const violations = [];
 
-  addNewItems(violations, "added-threshold", nonPlaceholderCandidate.thresholds, original.thresholds);
-  addNewItems(violations, "added-percentage", nonPlaceholderCandidate.percentages, original.percentages);
-  addNewItems(violations, "added-named-program", nonPlaceholderCandidate.namedPrograms, original.namedPrograms);
-  addNewItems(violations, "added-deadline", nonPlaceholderCandidate.deadlines, original.deadlines);
-  addNewItems(violations, "added-named-entity", nonPlaceholderCandidate.namedEntities, original.namedEntities);
-  addNewItems(violations, "added-comparison-claim", nonPlaceholderCandidate.comparisons, original.comparisons);
-  addNewItems(violations, "added-empirical-claim", nonPlaceholderCandidate.empiricalClaims, original.empiricalClaims);
-  addNewItems(violations, "added-procedure", nonPlaceholderCandidate.procedures, original.procedures);
-  addNewItems(violations, "added-group", nonPlaceholderCandidate.groups, original.groups);
-  addNewItems(violations, "scope-changed", nonPlaceholderCandidate.scopes, original.scopes);
-  addNewItems(violations, "added-uniqueness-claim", nonPlaceholderCandidate.uniqueness, original.uniqueness);
+  const userSources = collectUserFactSources(patch);
+
+  addNewItems(violations, "added-threshold", nonPlaceholderCandidate.thresholds, original.thresholds, userSources, mode);
+  addNewItems(violations, "added-percentage", nonPlaceholderCandidate.percentages, original.percentages, userSources, mode);
+  addNewItems(violations, "added-named-program", nonPlaceholderCandidate.namedPrograms, original.namedPrograms, userSources, mode);
+  addNewItems(violations, "added-deadline", nonPlaceholderCandidate.deadlines, original.deadlines, userSources, mode);
+  addNewItems(violations, "added-named-entity", nonPlaceholderCandidate.namedEntities, original.namedEntities, userSources, mode);
+  addNewItems(violations, "added-comparison-claim", nonPlaceholderCandidate.comparisons, original.comparisons, userSources, mode);
+  addNewItems(violations, "added-empirical-claim", nonPlaceholderCandidate.empiricalClaims, original.empiricalClaims, userSources, mode);
+  addNewItems(violations, "added-procedure", nonPlaceholderCandidate.procedures, original.procedures, userSources, mode);
+  addNewItems(violations, "added-group", nonPlaceholderCandidate.groups, original.groups, userSources, mode);
+  addNewItems(violations, "scope-changed", nonPlaceholderCandidate.scopes, original.scopes, userSources, mode);
+  addNewItems(violations, "added-uniqueness-claim", nonPlaceholderCandidate.uniqueness, original.uniqueness, userSources, mode);
 
   if (modalityStrength(candidate.modalities) > modalityStrength(original.modalities)) {
-    violations.push({ kind: "modality-strengthened", snippet: strongestModality(candidate.modalities) });
+    violations.push(classifyAddition("modality-strengthened", strongestModality(candidate.modalities), userSources, mode));
   }
 
   const objectionsRemoved = detectRemovedObjections(draft, rewrite);
 
   for (const objection of objectionsRemoved) {
-    violations.push({ kind: "objection-removed", snippet: objection });
+    violations.push({ kind: "objection-removed", snippet: objection, source: "no user source", status: "blocked" });
   }
 
   const placeholders = extractPlaceholders(rewrite);
-  const modeAccepted = mode !== "structure_only" || violations.length === 0;
+  const modeAccepted = mode === "evidence_mode" || violations.every((violation) => violation.status !== "blocked");
 
   return {
     mode,
@@ -340,15 +424,15 @@ function buildMutationReport(draft, rewrite, patch, mode) {
     placeholders,
     violations,
     checks: {
-      newEvidenceAdded: yesNo(hasKind(violations, "added-empirical-claim")),
-      newThresholdsAdded: yesNo(hasKind(violations, "added-threshold")),
-      newPercentagesAdded: yesNo(hasKind(violations, "added-percentage")),
-      newNamedProgramsAdded: yesNo(hasKind(violations, "added-named-program")),
-      newNamedEntitiesAdded: yesNo(hasKind(violations, "added-named-entity")),
-      newDatesDeadlinesAdded: yesNo(hasKind(violations, "added-deadline")),
-      newProceduresAdded: yesNo(hasKind(violations, "added-procedure")),
-      newGroupsAdded: yesNo(hasKind(violations, "added-group")),
-      scopeChanged: yesNo(hasKind(violations, "scope-changed")),
+      newEvidenceAdded: checkStatus(violations, "added-empirical-claim"),
+      newThresholdsAdded: checkStatus(violations, "added-threshold"),
+      newPercentagesAdded: checkStatus(violations, "added-percentage"),
+      newNamedProgramsAdded: checkStatus(violations, "added-named-program"),
+      newNamedEntitiesAdded: checkStatus(violations, "added-named-entity"),
+      newDatesDeadlinesAdded: checkStatus(violations, "added-deadline"),
+      newProceduresAdded: checkStatus(violations, "added-procedure"),
+      newGroupsAdded: checkStatus(violations, "added-group"),
+      scopeChanged: checkStatus(violations, "scope-changed"),
       modalityStrengthened: yesNo(hasKind(violations, "modality-strengthened")),
       conclusionStrengthened: yesNo(
         hasKind(violations, "added-uniqueness-claim") || hasKind(violations, "modality-strengthened"),
@@ -406,6 +490,13 @@ function analyzeText(text) {
       /\btriggering early-warning responses\b/gi,
       /\bcover(?:ing)? up to\s+[^.,;]+/gi,
       /\bshould cover a comparable percentage\b/gi,
+      /\bmain office\b[^.,;]*/gi,
+      /\boffice\b[^.,;]*verified emergencies\b/gi,
+      /\bexemptions require documentation\b[^.,;]*/gi,
+      /\bloaner Chromebooks\b[^.,;]*/gi,
+      /\bsupervised library access\b[^.,;]*/gi,
+      /\boffice-based ride coordination\b/gi,
+      /\bdistrict technology-access budget\b/gi,
     ])),
     groups: unique(matches(clean, [
       /\bfewer than\s+\d+\s+units\b/gi,
@@ -516,7 +607,13 @@ function formatMutationReport(report) {
   lines.push(`Placeholders inserted: ${report.placeholders.length ? report.placeholders.join(", ") : "none"}`);
 
   for (const violation of report.violations) {
-    lines.push(`Mutation violation: ${violation.kind} "${violation.snippet}"`);
+    if (violation.status === "blocked") {
+      lines.push(`Mutation violation: ${violation.kind} "${violation.snippet}"`);
+    } else {
+      lines.push(`Allowed addition: ${violation.kind} "${violation.snippet}"`);
+    }
+    lines.push(`Source: ${violation.source || "no user source"}`);
+    lines.push(`Status: ${violation.status === "allowed" ? "allowed" : "blocked"}`);
   }
 
   lines.push(`Accepted: ${report.accepted ? "yes" : "no"}`);
@@ -562,7 +659,265 @@ function normalizeGapRefs(operation) {
     refs.push(...operation.gaps);
   }
 
-  return refs;
+  if (operation.gap) {
+    refs.push(operation.gap);
+  }
+
+  return unique(refs);
+}
+
+function hasResolvedGapAnswer(gap) {
+  return typeof gap?.resolved === "string" && gap.resolved.trim().length > 0;
+}
+
+function collectUserFactSources(patch) {
+  const sources = [];
+
+  for (const gap of patch?.gaps || []) {
+    if (hasResolvedGapAnswer(gap)) {
+      sources.push({ gapId: gap.id, text: gap.resolved });
+    }
+  }
+
+  for (const operation of patch?.operations || []) {
+    const op = operation.op || operation.operation;
+    if (op !== "insert-user-fact") {
+      continue;
+    }
+
+    const gapId = normalizeGapRefs(operation)[0];
+    const text = operation.userFact || operation.text || "";
+
+    if (gapId && text.trim()) {
+      sources.push({ gapId, text });
+    }
+  }
+
+  return sources;
+}
+
+function classifyAddition(kind, snippet, userSources, mode) {
+  const source = findUserSource(snippet, userSources);
+
+  if (source) {
+    return { kind, snippet, source: `USER_SUPPLIED ${source.gapId}`, status: "allowed" };
+  }
+
+  if (mode === "evidence_mode") {
+    return { kind, snippet, source: "EXTERNAL evidence_mode", status: "allowed" };
+  }
+
+  return { kind, snippet, source: "no user source", status: "blocked" };
+}
+
+function findUserSource(snippet, userSources) {
+  const snippetCanon = canonical(snippet);
+
+  if (!snippetCanon) {
+    return null;
+  }
+
+  return userSources.find((source) => {
+    const sourceCanon = canonical(source.text);
+    return sourceCanon.includes(snippetCanon) || snippetCanon.includes(sourceCanon);
+  }) || null;
+}
+
+function readFlagFile(filePath) {
+  return readText(filePath)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && line !== "[]" && !/^LOGICBOX-/.test(line));
+}
+
+function buildFlagDelta(beforeFlags, afterFlags) {
+  const before = new Set(beforeFlags);
+  const after = new Set(afterFlags);
+
+  return {
+    before: beforeFlags,
+    after: afterFlags,
+    resolved: beforeFlags.filter((flag) => !after.has(flag)),
+    remaining: afterFlags.filter((flag) => before.has(flag)),
+    newFlags: afterFlags.filter((flag) => !before.has(flag)),
+  };
+}
+
+function groupFlagsByGap(flags, patch) {
+  const gaps = (patch.gaps || []).filter((gap) => !hasResolvedGapAnswer(gap));
+  const grouped = new Map(gaps.map((gap) => [gap.id, []]));
+  const ungrouped = [];
+  const valueCriteria = [];
+
+  for (const flag of flags) {
+    if (/^\[value-criteria-(?:missing|stated|grounded)\b/.test(flag)) {
+      valueCriteria.push(flag);
+      continue;
+    }
+
+    const gap = findGapForFlag(flag, gaps);
+
+    if (gap) {
+      grouped.get(gap.id).push(flag);
+    } else {
+      ungrouped.push(flag);
+    }
+  }
+
+  return {
+    byGap: Array.from(grouped.entries())
+      .filter(([, items]) => items.length)
+      .map(([gapId, items]) => ({ gapId, flags: items })),
+    ungrouped,
+    valueCriteria,
+  };
+}
+
+function findGapForFlag(flag, gaps) {
+  const flagCanon = canonical(flag);
+
+  return gaps.find((gap) => {
+    const declared = []
+      .concat(gap.flags || [])
+      .concat(gap.flagPatterns || [])
+      .map(canonical);
+
+    if (declared.some((item) => item && flagCanon.includes(item))) {
+      return true;
+    }
+
+    const subjectWords = canonical(`${gap.subject || ""} ${gap.prompt || ""}`)
+      .split(" ")
+      .filter((word) => word.length >= 7);
+
+    return subjectWords.some((word) => flagCanon.includes(word));
+  }) || null;
+}
+
+function formatGapFillReport(rewrite, patch, mutationText, delta, groups) {
+  const lines = [];
+
+  lines.push("## Updated rewrite");
+  lines.push("");
+  lines.push(rewrite.trim() || "(no rewrite produced)");
+  lines.push("");
+  lines.push("## Gap status");
+  lines.push("");
+
+  for (const gap of patch.gaps || []) {
+    const status = hasResolvedGapAnswer(gap) ? "resolved" : "open";
+    lines.push(`${gap.id} ${status}`);
+  }
+
+  lines.push("");
+  lines.push("## Mutation report");
+  lines.push("");
+  lines.push((mutationText || "Mutation report was not provided.").trim());
+  lines.push("");
+  lines.push("## Consistency status");
+  lines.push("");
+  lines.push(formatConsistencyStatus(mutationText, delta));
+  lines.push("");
+  lines.push("## Structural re-check");
+  lines.push("");
+  lines.push(`Before: ${delta.before.length} flags`);
+  lines.push(`After: ${delta.after.length} flags`);
+  lines.push(`Resolved: ${delta.resolved.length}`);
+  lines.push(`New: ${delta.newFlags.length}`);
+  lines.push("");
+  lines.push("Resolved:");
+  lines.push(...formatFlagList(delta.resolved));
+  lines.push("");
+  lines.push("Remaining:");
+  lines.push(...formatFlagList(delta.remaining));
+  lines.push("");
+  lines.push("New:");
+  lines.push(...formatFlagList(delta.newFlags));
+  lines.push("");
+  lines.push("## Remaining flags grouped by gap");
+  lines.push("");
+
+  if (!groups.byGap.length && !groups.ungrouped.length && !groups.valueCriteria.length) {
+    lines.push("No remaining flags.");
+  } else {
+    for (const group of groups.byGap) {
+      const gap = (patch.gaps || []).find((item) => item.id === group.gapId);
+      lines.push(`${group.gapId}: ${gap?.subject || gap?.prompt || "unresolved gap"}`);
+      lines.push(...formatFlagList(group.flags));
+      lines.push("");
+    }
+
+    if (groups.ungrouped.length) {
+      lines.push("Ungrouped:");
+      lines.push(...formatFlagList(groups.ungrouped));
+      lines.push("");
+    }
+
+    if (groups.valueCriteria.length) {
+      lines.push("Value criteria:");
+      lines.push(...formatFlagList(groups.valueCriteria));
+      lines.push("");
+    }
+  }
+
+  lines.push("## Next action");
+  lines.push("");
+  lines.push(recommendNextAction(patch, groups));
+
+  return `${lines.join("\n")}\n`;
+}
+
+function formatConsistencyStatus(mutationText, delta) {
+  const mutationAccepted = /\bAccepted:\s*yes\b/.test(mutationText || "");
+  const reconciliationFlags = delta.after.filter(isReconciliationFlag);
+
+  if (mutationAccepted && reconciliationFlags.length) {
+    return [
+      "Mutation check passed because the new details were user-supplied.",
+      "Structural consistency check found new tensions introduced by those details.",
+      "Consistency status: needs reconciliation.",
+    ].join("\n");
+  }
+
+  if (reconciliationFlags.length) {
+    return "Structural consistency check found tensions that need reconciliation.";
+  }
+
+  if (mutationAccepted) {
+    return "Mutation check passed. Structural consistency check found no new reconciliation flags.";
+  }
+
+  return "Mutation check did not pass. Resolve mutation issues before relying on the consistency result.";
+}
+
+function isReconciliationFlag(flag) {
+  return /^\[tension\b/.test(flag)
+    || /^\[mitigation-needs-equivalence-check\b/.test(flag)
+    || /^\[overclaim necessity-counterfactual\b/.test(flag)
+    || /^\[plan-status \S+ needs-reconciliation\]$/.test(flag);
+}
+
+function formatFlagList(flags) {
+  return flags.length ? flags.map((flag) => `- ${flag}`) : ["- none"];
+}
+
+function recommendNextAction(patch, groups) {
+  const openGaps = (patch.gaps || []).filter((gap) => !hasResolvedGapAnswer(gap));
+  const evidenceGap = openGaps.find((gap) => /evidence|metric|source/i.test(`${gap.type} ${gap.prompt}`));
+
+  if (evidenceGap) {
+    return `${evidenceGap.id} remains open. Provide evidence, narrow the claim, or remove the unsupported commitment.`;
+  }
+
+  if (openGaps.length) {
+    return `${openGaps.map((gap) => gap.id).join(", ")} remain open. Supply matching user facts or mark the claims unresolved.`;
+  }
+
+  if (groups.byGap.length || groups.ungrouped.length) {
+    return "The rewrite is safe, but the structural check still has open flags. Resolve those before moving to evidence mode.";
+  }
+
+  return "The rewrite is traceable and structurally clear enough; it is ready for evidence mode if outside support is needed.";
 }
 
 function formatStandalonePlaceholder(gapId, patch) {
@@ -585,12 +940,12 @@ function substitutePlaceholdersWithGapSubjects(text, patch) {
   return (text || "").replace(/\[(G[A-Z0-9_-]*):\s*[^\]]+\]/gi, (_match, gapId) => gaps.get(gapId) || "");
 }
 
-function addNewItems(violations, kind, candidateItems, originalItems) {
+function addNewItems(violations, kind, candidateItems, originalItems, userSources, mode) {
   const original = new Set(originalItems.map(canonical));
 
   for (const item of candidateItems) {
     if (!original.has(canonical(item))) {
-      violations.push({ kind, snippet: item });
+      violations.push(classifyAddition(kind, item, userSources, mode));
     }
   }
 }
@@ -602,6 +957,24 @@ function hasKind(reportOrViolations, kind) {
 
 function yesNo(value) {
   return value ? "yes" : "no";
+}
+
+function checkStatus(violations, kind) {
+  const matching = violations.filter((item) => item.kind === kind);
+
+  if (!matching.length) {
+    return "no";
+  }
+
+  if (matching.every((item) => item.status === "allowed" && /^USER_SUPPLIED\b/.test(item.source || ""))) {
+    return `yes, user-supplied ${unique(matching.map((item) => item.source.replace(/^USER_SUPPLIED\s*/, ""))).join("/")}`;
+  }
+
+  if (matching.every((item) => item.status === "allowed" && /^EXTERNAL\b/.test(item.source || ""))) {
+    return "yes, external";
+  }
+
+  return "yes, invented";
 }
 
 function modalityStrength(modalities) {
@@ -847,6 +1220,39 @@ function runSelfTests() {
 
   assert(!mutation.report.accepted, "free-form invalid rewrite should fail mutation");
   assert(hasKind(mutation.report, "added-threshold"), "mutation should flag added threshold");
+
+  fs.writeFileSync(draftPath, "Students need a reliable emergency contact method.", "utf8");
+  fs.writeFileSync(
+    validPatchPath,
+    JSON.stringify(
+      {
+        mode: "rewrite_with_user_facts",
+        gaps: [
+          {
+            id: "G1",
+            type: "procedure-needed",
+            subject: "emergency contact method",
+            prompt: "define the emergency contact method",
+            resolved: "Families can contact students through the main office.",
+          },
+        ],
+        operations: [
+          {
+            op: "insert-user-fact",
+            sentenceId: "s1",
+            gapId: "G1",
+            provenance: ["USER_SUPPLIED"],
+            text: "Families can contact students through the main office.",
+          },
+        ],
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+  const userFactPatch = validatePatchCommand({ draft: draftPath, patch: validPatchPath });
+  assert(userFactPatch.accepted, "matching user fact patch should pass");
 
   process.stdout.write("rewrite-safety tests passed\n");
 }

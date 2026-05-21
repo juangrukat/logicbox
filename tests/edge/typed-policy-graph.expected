@@ -7,4 +7,4 @@
 [popularity-weak-support p1-support c1]
 [exception-boundary-needed e1]
 [broad-ban-vs-exemptions c1 e1]
-[plan-incomplete p1]
+[plan-status p1 needs-user-input]

@@ -1,2 +1,3 @@
 [evidence-needed r1 stress]
-[plan-incomplete p1]
+[plan-status p1 needs-user-input]
+[plan-status p1 needs-evidence]
