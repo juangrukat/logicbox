@@ -92,6 +92,11 @@
   X Kind [[term X Kind] | _] -> true
   X Kind [_ | Rest] -> (term-is? X Kind Rest))
 
+(define fact-present?
+  Fact [] -> false
+  Fact [Fact | _] -> true
+  Fact [_ | Rest] -> (fact-present? Fact Rest))
+
 (define compound-domain-atom?
   X [] -> false
   X [[compound-domain-atom X] | _] -> true
@@ -323,6 +328,7 @@
   P [tension subgroup-rule-conflicts-with-policy C _ _] Facts -> (claim-belongs-to-plan? P C Facts)
   P [mitigation-needs-equivalence-check _ _] Facts -> true
   P [overclaim necessity-counterfactual K _] Facts -> (conclusion-belongs-to-plan? P K Facts)
+  P [contradiction _ _] Facts -> true
   P [deleted-main-claim _] Facts -> true
   P [deleted-condition _] Facts -> true
   P [deleted-objection _] Facts -> true
@@ -332,6 +338,8 @@
   P [deleted-mitigation _] Facts -> true
   P [deleted-value-conclusion _] Facts -> true
   P [deleted-protected-claim _ _] Facts -> true
+  P [mutation-violation _ _] Facts -> true
+  P [patch-violation _ _] Facts -> true
   P [analogy-needs-comparability _] Facts -> true
   P [popularity-weak-support _ C] Facts -> (claim-belongs-to-plan? P C Facts)
   P [exception-boundary-needed _] Facts -> true
@@ -360,6 +368,7 @@
   P [[tension uniform-rule-vs-exception _ _] | Rest] Facts -> true
   P [[mitigation-needs-equivalence-check _ _] | Rest] Facts -> true
   P [[overclaim necessity-counterfactual K _] | Rest] Facts -> (if (conclusion-belongs-to-plan? P K Facts) true (plan-has-reconciliation-needed? P Rest Facts))
+  P [[contradiction _ _] | Rest] Facts -> true
   P [_ | Rest] Facts -> (plan-has-reconciliation-needed? P Rest Facts))
 
 (define incomplete-plan-status
@@ -462,6 +471,7 @@
   [[tension subgroup-rule-conflicts-with-policy C Rule Group] | Rest] -> [[precomputed-flag tension subgroup-rule-conflicts-with-policy C Rule Group] | (collect-precomputed-flags Rest)]
   [[mitigation-needs-equivalence-check M O] | Rest] -> [[precomputed-flag mitigation-needs-equivalence-check M O] | (collect-precomputed-flags Rest)]
   [[overclaim necessity-counterfactual K Ground] | Rest] -> [[precomputed-flag overclaim necessity-counterfactual K Ground] | (collect-precomputed-flags Rest)]
+  [[contradiction Kind X] | Rest] -> [[precomputed-flag contradiction Kind X] | (collect-precomputed-flags Rest)]
   [[deleted-main-claim X] | Rest] -> [[precomputed-flag deleted-main-claim X] | (collect-precomputed-flags Rest)]
   [[deleted-condition X] | Rest] -> [[precomputed-flag deleted-condition X] | (collect-precomputed-flags Rest)]
   [[deleted-objection X] | Rest] -> [[precomputed-flag deleted-objection X] | (collect-precomputed-flags Rest)]
@@ -1136,6 +1146,109 @@
             (collect-deleted-protected-h Facts Facts)
             []))
 
+(define safety-addition-allowed?
+  Id Facts -> (if (fact-present? [addition-source Id user-supplied] Facts)
+               true
+               (fact-present? [addition-source Id external] Facts)))
+
+(define collect-text-mutation-flags-h
+  [] Facts -> []
+  [[candidate-addition Kind Id] | Rest] Facts -> (if (safety-addition-allowed? Id Facts)
+                                                  (collect-text-mutation-flags-h Rest Facts)
+                                                  [[mutation-violation Kind Id] | (collect-text-mutation-flags-h Rest Facts)])
+  [_ | Rest] Facts -> (collect-text-mutation-flags-h Rest Facts))
+
+(define collect-text-mutation-flags
+  Facts -> (collect-text-mutation-flags-h Facts Facts))
+
+(define protected-patch-op-invalid?
+  delete -> true
+  omit -> true
+  insert-placeholder -> true
+  _ -> false)
+
+(define patch-op-placeholder-only?
+  OpId [] -> false
+  OpId [[patch-placeholder-only OpId] | _] -> true
+  OpId [_ | Rest] -> (patch-op-placeholder-only? OpId Rest))
+
+(define collect-patch-validation-flags-h
+  [] Facts -> []
+  [[patch-op OpId Op Sentence] | Rest] Facts -> (if (fact-present? [protected-sentence Sentence] Facts)
+                                                 (if (protected-patch-op-invalid? Op)
+                                                  [[patch-violation protected-deletion Sentence] | (collect-patch-validation-flags-h Rest Facts)]
+                                                  (if (patch-op-placeholder-only? OpId Facts)
+                                                   [[patch-violation protected-placeholder Sentence] | (collect-patch-validation-flags-h Rest Facts)]
+                                                   (collect-patch-validation-flags-h Rest Facts)))
+                                                 (collect-patch-validation-flags-h Rest Facts))
+  [_ | Rest] Facts -> (collect-patch-validation-flags-h Rest Facts))
+
+(define collect-patch-validation-flags
+  Facts -> (collect-patch-validation-flags-h Facts Facts))
+
+(define rewrite-safety-flags
+  Facts -> (append (collect-text-mutation-flags Facts)
+           (append (collect-deleted-protected Facts)
+                   (collect-patch-validation-flags Facts))))
+
+(define derive-mutation-acceptance
+  Facts -> (if (no-flags? (rewrite-safety-flags Facts))
+            [[mutation-status accepted]]
+            [[mutation-status rejected]]))
+
+(define requires-equivalent-benefit?
+  X [] -> false
+  X [[requires-equivalent-benefit X] | _] -> true
+  X [[mitigation-type X equivalent-benefit-fallback] | _] -> true
+  X [_ | Rest] -> (requires-equivalent-benefit? X Rest))
+
+(define denies-equivalent-benefit?
+  X [] -> false
+  X [[denies-equivalent-benefit X] | _] -> true
+  X [[equivalence-status X denied] | _] -> true
+  X [[equivalence-status X none] | _] -> true
+  X [_ | Rest] -> (denies-equivalent-benefit? X Rest))
+
+(define collect-equivalent-benefit-contradictions-h
+  [] Facts -> []
+  [[requires-equivalent-benefit X] | Rest] Facts -> (if (denies-equivalent-benefit? X Facts)
+                                                     [[contradiction equivalent-benefit-required-vs-denied X] | (collect-equivalent-benefit-contradictions-h Rest Facts)]
+                                                     (collect-equivalent-benefit-contradictions-h Rest Facts))
+  [[mitigation-type X equivalent-benefit-fallback] | Rest] Facts -> (if (requires-equivalent-benefit? X Facts)
+                                                                     (collect-equivalent-benefit-contradictions-h Rest Facts)
+                                                                     (if (denies-equivalent-benefit? X Facts)
+                                                                      [[contradiction equivalent-benefit-required-vs-denied X] | (collect-equivalent-benefit-contradictions-h Rest Facts)]
+                                                                      (collect-equivalent-benefit-contradictions-h Rest Facts)))
+  [_ | Rest] Facts -> (collect-equivalent-benefit-contradictions-h Rest Facts))
+
+(define collect-equivalent-benefit-contradictions
+  Facts -> (collect-equivalent-benefit-contradictions-h Facts Facts))
+
+(define collect-trip-tracking-contradictions-h
+  [] Facts -> []
+  [[no-trip-tracking X] | Rest] Facts -> (if (fact-present? [id-scan-verification X] Facts)
+                                          [[contradiction no-trip-tracking-vs-id-scan-verification X] | (collect-trip-tracking-contradictions-h Rest Facts)]
+                                          (collect-trip-tracking-contradictions-h Rest Facts))
+  [_ | Rest] Facts -> (collect-trip-tracking-contradictions-h Rest Facts))
+
+(define collect-trip-tracking-contradictions
+  Facts -> (collect-trip-tracking-contradictions-h Facts Facts))
+
+(define collect-treatment-tensions-h
+  [] Facts -> []
+  [[identical-treatment X] | Rest] Facts -> (if (fact-present? [requires-equitable-treatment X] Facts)
+                                             [[tension identical-treatment-vs-equitable-treatment X] | (collect-treatment-tensions-h Rest Facts)]
+                                             (collect-treatment-tensions-h Rest Facts))
+  [_ | Rest] Facts -> (collect-treatment-tensions-h Rest Facts))
+
+(define collect-treatment-tensions
+  Facts -> (collect-treatment-tensions-h Facts Facts))
+
+(define collect-consistency-contradictions
+  Facts -> (append (collect-equivalent-benefit-contradictions Facts)
+           (append (collect-trip-tracking-contradictions Facts)
+                   (collect-treatment-tensions Facts))))
+
 (define evidence-known?
   R [] -> false
   R [[evidence R shown] | _] -> true
@@ -1167,6 +1280,7 @@
            (append (collect-missing-context Facts)
            (append (collect-context-conflicts Facts)
            (append (collect-context-scope-leaks Facts)
+           (append (collect-consistency-contradictions Facts)
            (append (collect-benefit-undermined Facts)
            (append (collect-uniform-exception-conflicts Facts)
            (append (collect-subgroup-policy-conflicts Facts)
@@ -1199,7 +1313,7 @@
            (append (collect-modality-mutations Facts)
            (append (collect-scope-mutations Facts)
            (append (collect-source-mutations Facts)
-                   (collect-target-mutations Facts))))))))))))))))))))))))))))))))))))))))))))))))
+                   (collect-target-mutations Facts)))))))))))))))))))))))))))))))))))))))))))))))))
 
 (define collect-plan-status-h
   [] Facts -> []

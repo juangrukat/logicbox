@@ -3,6 +3,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const childProcess = require("node:child_process");
 
 const MODES = new Set(["structure_only", "rewrite_with_user_facts", "evidence_mode"]);
 const STRUCTURE_ALLOWED_OPS = new Set([
@@ -1443,6 +1444,302 @@ function readPatch(filePath) {
   return JSON.parse(readText(filePath));
 }
 
+function buildShenSafetyFacts(draft, rewrite, patch, mode) {
+  const facts = ["[rewrite-status rewrite-present checked]"];
+  const original = analyzeText(draft);
+  const nonPlaceholderRewrite = substitutePlaceholdersWithGapSubjects(rewrite, patch);
+  const candidate = analyzeText(nonPlaceholderRewrite);
+  const userSources = collectUserFactSources(patch);
+  let counter = 1;
+
+  const addCandidateItems = (kind, candidateItems, originalItems) => {
+    const originalSet = new Set(originalItems.map(canonical));
+
+    for (const item of candidateItems) {
+      if (originalSet.has(canonical(item))) {
+        continue;
+      }
+
+      const id = `${kind}-${counter}`;
+      counter += 1;
+      facts.push(`[candidate-addition ${kind} ${id}]`);
+      const source = findUserSource(item, userSources);
+      if (source) {
+        facts.push(`[addition-source ${id} user-supplied]`);
+      } else if (mode === "evidence_mode") {
+        facts.push(`[addition-source ${id} external]`);
+      }
+    }
+  };
+
+  addCandidateItems("added-threshold", candidate.thresholds, original.thresholds);
+  addCandidateItems("added-percentage", candidate.percentages, original.percentages);
+  addCandidateItems("added-named-program", candidate.namedPrograms, original.namedPrograms);
+  addCandidateItems("added-deadline", candidate.deadlines, original.deadlines);
+  addCandidateItems("added-named-entity", candidate.namedEntities, original.namedEntities);
+  addCandidateItems("added-comparison-claim", candidate.comparisons, original.comparisons);
+  addCandidateItems("added-empirical-claim", candidate.empiricalClaims, original.empiricalClaims);
+  addCandidateItems("added-procedure", candidate.procedures, original.procedures);
+  addCandidateItems("added-group", candidate.groups, original.groups);
+  addCandidateItems("scope-changed", candidate.scopes, original.scopes);
+  addCandidateItems("added-uniqueness-claim", candidate.uniqueness, original.uniqueness);
+
+  const protectedItems = inferProtectedItems(draft);
+  for (const item of protectedItems) {
+    facts.push(`[protected ${item.id} ${item.role}]`);
+    if (protectedItemPreserved(item, nonPlaceholderRewrite)) {
+      facts.push(`[rewrite-status ${item.id} preserved]`);
+    }
+  }
+
+  let opCounter = 1;
+  for (const operation of patch?.operations || []) {
+    const op = operation.op || operation.operation;
+    const opId = `op${opCounter}`;
+    opCounter += 1;
+    if (op && operation.sentenceId) {
+      facts.push(`[patch-op ${opId} ${op} ${operation.sentenceId}]`);
+      if (protectedItems.some((item) => item.sentenceId === operation.sentenceId)) {
+        facts.push(`[protected-sentence ${operation.sentenceId}]`);
+      }
+      if (isPlaceholderOnly(protectedRewriteText(operation))) {
+        facts.push(`[patch-placeholder-only ${opId}]`);
+      }
+    }
+  }
+
+  return facts;
+}
+
+function formatShenFacts(facts) {
+  return `(set *facts*\n  [\n${facts.map((fact) => `    ${fact}`).join("\n")}\n  ])\n`;
+}
+
+function runShenSafetyFacts(facts, tempDir) {
+  const root = path.resolve(__dirname, "..");
+  const shen = process.env.SHEN_SBCL || "/opt/homebrew/bin/shen-sbcl";
+  const factsPath = path.join(tempDir, `shen-safety-${process.pid}-${Date.now()}.shen`);
+  const rawPath = path.join(tempDir, `shen-safety-${process.pid}-${Date.now()}.raw`);
+
+  fs.writeFileSync(factsPath, formatShenFacts(facts), "utf8");
+
+  const result = childProcess.spawnSync(
+    shen,
+    ["-l", factsPath, "-l", path.join(root, "shen/rules.shen"), "-l", path.join(root, "shen/run-rewrite-safety.shen")],
+    { encoding: "utf8" },
+  );
+
+  fs.writeFileSync(rawPath, `${result.stdout || ""}${result.stderr || ""}`, "utf8");
+
+  if (result.status !== 0) {
+    throw new Error(`Shen safety runner failed:\n${readText(rawPath)}`);
+  }
+
+  return captureLogicboxLines(result.stdout || "");
+}
+
+function runShenCheckFacts(facts, tempDir) {
+  const root = path.resolve(__dirname, "..");
+  const shen = process.env.SHEN_SBCL || "/opt/homebrew/bin/shen-sbcl";
+  const factsPath = path.join(tempDir, `shen-check-${process.pid}-${Date.now()}.shen`);
+
+  fs.writeFileSync(factsPath, formatShenFacts(facts), "utf8");
+
+  const result = childProcess.spawnSync(
+    shen,
+    ["-l", factsPath, "-l", path.join(root, "shen/rules.shen"), "-l", path.join(root, "shen/run.shen")],
+    { encoding: "utf8" },
+  );
+
+  if (result.status !== 0) {
+    throw new Error(`Shen check runner failed:\n${result.stdout || ""}${result.stderr || ""}`);
+  }
+
+  return captureLogicboxLines(result.stdout || "");
+}
+
+function captureLogicboxLines(output) {
+  const lines = [];
+  let capture = false;
+
+  for (const line of (output || "").split(/\r?\n/)) {
+    if (line === "LOGICBOX-BEGIN") {
+      capture = true;
+      continue;
+    }
+    if (line === "LOGICBOX-END") {
+      break;
+    }
+    if (capture && line && line !== "ok" && !/^"/.test(line)) {
+      lines.push(line.trim());
+    }
+  }
+
+  return lines;
+}
+
+function shenAccepted(flags) {
+  return flags.includes("[mutation-status accepted]");
+}
+
+function assertParity(label, draft, rewrite, patch, mode, expectedKinds, tempDir) {
+  const js = buildMutationReport(draft, rewrite, patch, mode);
+  const shenFlags = runShenSafetyFacts(buildShenSafetyFacts(draft, rewrite, patch, mode), tempDir);
+  const shenOk = shenAccepted(shenFlags);
+
+  assert(
+    js.accepted === shenOk,
+    `${label}: JS accepted=${js.accepted} but Shen accepted=${shenOk}; Shen flags: ${shenFlags.join(", ")}`,
+  );
+
+  for (const kind of expectedKinds) {
+    assert(
+      shenFlags.some((flag) => flag.includes(kind)),
+      `${label}: expected Shen flag containing ${kind}; got ${shenFlags.join(", ")}`,
+    );
+  }
+
+  return { js, shenFlags };
+}
+
+function runShenParityTests(tempDir) {
+  const thresholdDraft = "The city should require large apartment buildings to install smart cooling systems.";
+  assertParity(
+    "invented threshold",
+    thresholdDraft,
+    "The city should require apartment buildings with 20 or more units to install smart cooling systems.",
+    { mode: "structure_only", operations: [] },
+    "structure_only",
+    ["added-threshold", "mutation-status rejected"],
+    tempDir,
+  );
+
+  assertParity(
+    "named program",
+    thresholdDraft,
+    "The city should require large apartment buildings to install smart cooling systems through the Fire Code Assistance Program with a 70% subsidy.",
+    { mode: "structure_only", operations: [] },
+    "structure_only",
+    ["added-named-program", "added-percentage", "mutation-status rejected"],
+    tempDir,
+  );
+
+  const userDraft = "Students need a reliable emergency contact method.";
+  const userPatch = {
+    mode: "rewrite_with_user_facts",
+    gaps: [
+      {
+        id: "G1",
+        type: "procedure-needed",
+        subject: "emergency contact method",
+        prompt: "define the emergency contact method",
+        resolved: "Families can contact students through the main office.",
+      },
+    ],
+    operations: [
+      {
+        op: "insert-user-fact",
+        sentenceId: "s1",
+        gapId: "G1",
+        provenance: ["USER_SUPPLIED"],
+        text: "Families can contact students through the main office.",
+      },
+    ],
+  };
+  assertParity(
+    "user-supplied insertion",
+    userDraft,
+    "Families can contact students through the main office.",
+    userPatch,
+    "rewrite_with_user_facts",
+    ["mutation-status accepted"],
+    tempDir,
+  );
+
+  const hospitalDraft = "The hospital should use an AI scheduling assistant to create nurse schedules, but only if patient coverage, nurse fairness, and emergency staffing do not suffer.";
+  assertParity(
+    "deleted main claim",
+    hospitalDraft,
+    "[undefined: fill missing information]",
+    { mode: "structure_only", operations: [] },
+    "structure_only",
+    ["deleted-main-claim", "deleted-condition", "mutation-status rejected"],
+    tempDir,
+  );
+
+  const unresolvedRewrite = `${hospitalDraft}\n\n[Unresolved: G1 patient coverage, G2 nurse fairness, G3 emergency staffing.]`;
+  assertParity(
+    "preserved unresolved main claim",
+    hospitalDraft,
+    unresolvedRewrite,
+    { mode: "structure_only", operations: [] },
+    "structure_only",
+    ["mutation-status accepted"],
+    tempDir,
+  );
+
+  const transitDraft = "The company should provide free public-transit passes to all employees, but only if the program is affordable and employees who cannot use transit are treated fairly.";
+  const transitRewrite = [
+    "The company should provide free public-transit passes to all employees, but only if the program is affordable and employees who cannot use transit are treated fairly.",
+    "Employees who cannot use transit will receive no separate benefit because the program is designed to encourage transit use.",
+    "The company will not track employee trips, but employees must scan a company ID card every time they board transit so HR can verify usage.",
+  ].join(" ");
+  const transitPatch = {
+    mode: "rewrite_with_user_facts",
+    gaps: [
+      { id: "G2", type: "definition-needed", subject: "non-transit employees treated fairly", resolved: "Employees who cannot use transit will receive no separate benefit because the program is designed to encourage transit use." },
+      { id: "G3", type: "definition-needed", subject: "privacy and tracking", resolved: "The company will not track employee trips, but employees must scan a company ID card every time they board transit so HR can verify usage." },
+    ],
+    operations: [
+      { op: "insert-user-fact", sentenceId: "s1", gapId: "G2", provenance: ["USER_SUPPLIED"], text: "Employees who cannot use transit will receive no separate benefit because the program is designed to encourage transit use." },
+      { op: "insert-user-fact", sentenceId: "s1", gapId: "G3", provenance: ["USER_SUPPLIED"], text: "The company will not track employee trips, but employees must scan a company ID card every time they board transit so HR can verify usage." },
+    ],
+  };
+  const transitParity = assertParity(
+    "transit user-supplied mutation",
+    transitDraft,
+    transitRewrite,
+    transitPatch,
+    "rewrite_with_user_facts",
+    ["mutation-status accepted"],
+    tempDir,
+  );
+  assert(transitParity.js.accepted, "transit mutation should pass because additions are user-supplied");
+
+  const transitConsistencyFlags = runShenCheckFacts([
+    "[plan p1]",
+    "[plan-claim p1 c1]",
+    "[plan-conclusion p1 k1]",
+    "[term c1 claim]",
+    "[target c1 transitpass]",
+    "[protected c1 main-claim]",
+    "[requires-equivalent-benefit transitgap]",
+    "[mitigation-type transitgap equivalent-benefit-fallback]",
+    "[denies-equivalent-benefit transitgap]",
+    "[no-trip-tracking privacy]",
+    "[id-scan-verification privacy]",
+    "[identical-treatment fairness]",
+    "[requires-equitable-treatment fairness]",
+    "[conclusion k1 necessaryconclusion]",
+    "[necessity-ground k1 parking-counterfactual]",
+    "[counterfactual parking-counterfactual]",
+    "[evidence-status parking-counterfactual unknown]",
+  ], tempDir);
+
+  for (const expected of [
+    "[contradiction equivalent-benefit-required-vs-denied transitgap]",
+    "[contradiction no-trip-tracking-vs-id-scan-verification privacy]",
+    "[tension identical-treatment-vs-equitable-treatment fairness]",
+    "[overclaim necessity-counterfactual k1 parking-counterfactual]",
+    "[plan-status p1 needs-reconciliation]",
+  ]) {
+    assert(
+      transitConsistencyFlags.includes(expected),
+      `transit consistency expected ${expected}; got ${transitConsistencyFlags.join(", ")}`,
+    );
+  }
+}
+
 function required(value, message) {
   if (!value) {
     throw new Error(message);
@@ -1673,6 +1970,8 @@ function runSelfTests() {
   );
   const userFactPatch = validatePatchCommand({ draft: draftPath, patch: validPatchPath });
   assert(userFactPatch.accepted, "matching user fact patch should pass");
+
+  runShenParityTests(tempDir);
 
   process.stdout.write("rewrite-safety tests passed\n");
 }

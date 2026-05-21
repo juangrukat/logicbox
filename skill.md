@@ -77,6 +77,8 @@ When asked to create a structure-only rewrite:
 
 In `structure_only`, never add new statistics, dates, deadlines, thresholds, percentages, named programs, proper nouns, empirical claims, causal mechanisms, implementation procedures, groups, stronger modality, or uniqueness claims. Replace those needs with placeholders such as `[G1: define size threshold]`.
 
+During the Stage 1 migration, keep JS as a wrapper only. Shen/SBCL should derive rewrite-safety acceptance through `run-rewrite-safety.shen`, and parity tests must compare legacy JS and Shen/SBCL output before default behavior is switched.
+
 Protected claims must stay present. A structure-only rewrite may preserve, meaning-preservingly rephrase, add bracketed gaps inside, or mark a protected sentence unresolved while keeping the original sentence. It must not delete or replace these roles with a standalone placeholder:
 
 - main recommendation or main claim
