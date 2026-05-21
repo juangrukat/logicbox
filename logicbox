@@ -73,6 +73,21 @@ run_check_model() {
   capture_logicbox_output "$raw" "$out"
 }
 
+use_legacy_js_preflight() {
+  [[ "${2:-}" == "--legacy-js-preflight" ]]
+}
+
+run_native_preflight() {
+  local dest="$1"
+  shift
+  "$SHEN" \
+    "$@" \
+    -l "$ROOT/shen/rules.shen" \
+    -l "$ROOT/shen/run-preflight.shen" \
+    > "$OUT/.shen-preflight-raw-output.txt"
+  capture_logicbox_output "$OUT/.shen-preflight-raw-output.txt" "$dest"
+}
+
 assert_line() {
   local file="$1"
   local expected="$2"
@@ -102,7 +117,16 @@ assert_no_text() {
 case "${1:-help}" in
   preflight)
     ensure_dirs
-    node "$ROOT/scripts/preflight-facts.js" "$FACTS" > "$PREFLIGHT_FACTS"
+    if ! use_legacy_js_preflight "$@" && [[ ! -x "$SHEN" ]]; then
+      echo "Could not find shen-sbcl at: $SHEN" >&2
+      echo "Set SHEN_SBCL=/path/to/shen-sbcl and try again." >&2
+      exit 1
+    fi
+    if use_legacy_js_preflight "$@"; then
+      node "$ROOT/scripts/preflight-facts.js" "$FACTS" > "$PREFLIGHT_FACTS"
+    else
+      run_native_preflight "$PREFLIGHT_FACTS" -l "$FACTS"
+    fi
     cat "$PREFLIGHT_FACTS"
     ;;
   check)
@@ -112,7 +136,11 @@ case "${1:-help}" in
       echo "Set SHEN_SBCL=/path/to/shen-sbcl and try again." >&2
       exit 1
     fi
-    node "$ROOT/scripts/preflight-facts.js" "$FACTS" > "$PREFLIGHT_FACTS"
+    if use_legacy_js_preflight "$@"; then
+      node "$ROOT/scripts/preflight-facts.js" "$FACTS" > "$PREFLIGHT_FACTS"
+    else
+      run_native_preflight "$PREFLIGHT_FACTS" -l "$FACTS"
+    fi
     "$SHEN" \
       -l "$FACTS" \
       -l "$PREFLIGHT_FACTS" \
@@ -129,7 +157,11 @@ case "${1:-help}" in
       echo "Set SHEN_SBCL=/path/to/shen-sbcl and try again." >&2
       exit 1
     fi
-    node "$ROOT/scripts/preflight-facts.js" "$FACTS" "$REWRITE_FACTS" > "$PREFLIGHT_FACTS"
+    if use_legacy_js_preflight "$@"; then
+      node "$ROOT/scripts/preflight-facts.js" "$FACTS" "$REWRITE_FACTS" > "$PREFLIGHT_FACTS"
+    else
+      run_native_preflight "$PREFLIGHT_FACTS" -l "$FACTS" -l "$REWRITE_FACTS"
+    fi
     "$SHEN" \
       -l "$FACTS" \
       -l "$REWRITE_FACTS" \
@@ -179,7 +211,7 @@ case "${1:-help}" in
         echo "Set SHEN_SBCL=/path/to/shen-sbcl and try again." >&2
         exit 1
       fi
-      node "$ROOT/scripts/preflight-facts.js" "$FACTS" > "$PREFLIGHT_FACTS"
+      run_native_preflight "$PREFLIGHT_FACTS" -l "$FACTS"
       "$SHEN" \
         -l "$FACTS" \
         -l "$PREFLIGHT_FACTS" \

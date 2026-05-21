@@ -1603,6 +1603,8 @@ function assertParity(label, draft, rewrite, patch, mode, expectedKinds, tempDir
 }
 
 function runShenParityTests(tempDir) {
+  runPreflightParityTests(tempDir);
+
   const thresholdDraft = "The city should require large apartment buildings to install smart cooling systems.";
   assertParity(
     "invented threshold",
@@ -1738,6 +1740,79 @@ function runShenParityTests(tempDir) {
       `transit consistency expected ${expected}; got ${transitConsistencyFlags.join(", ")}`,
     );
   }
+}
+
+function runPreflightParityTests(tempDir) {
+  const root = path.resolve(__dirname, "..");
+  const fixtures = [
+    "work/ai-facts.shen",
+    "work/rewrite-facts.shen",
+    "tests/edge/compound-domain-atom.shen",
+    "tests/edge/term-classifier.shen",
+    "tests/edge/value-conclusion-criteria.shen",
+    "tests/edge/transit-pass-contradiction.shen",
+    "tests/edge/protected-deletion-negative.shen",
+  ];
+
+  for (const fixture of fixtures) {
+    const filePath = path.join(root, fixture);
+    if (!fs.existsSync(filePath)) {
+      continue;
+    }
+
+    const legacy = runLegacyPreflightFiles([filePath]);
+    const native = runNativePreflightFiles([filePath], tempDir);
+    assertSameMarkerSet(`preflight parity ${fixture}`, legacy, native);
+  }
+}
+
+function runLegacyPreflightFiles(files) {
+  const root = path.resolve(__dirname, "..");
+  const result = childProcess.spawnSync(
+    process.execPath,
+    [path.join(root, "scripts/preflight-facts.js"), ...files],
+    { encoding: "utf8" },
+  );
+
+  if (result.status !== 0) {
+    throw new Error(`legacy preflight failed:\n${result.stdout || ""}${result.stderr || ""}`);
+  }
+
+  return extractPreflightMarkers(result.stdout || "");
+}
+
+function runNativePreflightFiles(files, tempDir) {
+  const root = path.resolve(__dirname, "..");
+  const shen = process.env.SHEN_SBCL || "/opt/homebrew/bin/shen-sbcl";
+  const result = childProcess.spawnSync(
+    shen,
+    [...files.flatMap((file) => ["-l", file]), "-l", path.join(root, "shen/rules.shen"), "-l", path.join(root, "shen/run-preflight.shen")],
+    { encoding: "utf8" },
+  );
+
+  fs.writeFileSync(path.join(tempDir, `native-preflight-${process.pid}-${Date.now()}.raw`), `${result.stdout || ""}${result.stderr || ""}`, "utf8");
+
+  if (result.status !== 0) {
+    throw new Error(`native preflight failed:\n${result.stdout || ""}${result.stderr || ""}`);
+  }
+
+  return extractPreflightMarkers(captureLogicboxLines(result.stdout || "").join("\n"));
+}
+
+function extractPreflightMarkers(text) {
+  return unique(matches(text || "", [
+    /\[(?:compound-domain-atom|decomposition-candidate|value-criteria-candidate)\s+[^\]]+\]/g,
+  ])).sort();
+}
+
+function assertSameMarkerSet(label, legacy, native) {
+  const legacyText = legacy.join("\n");
+  const nativeText = native.join("\n");
+
+  assert(
+    legacyText === nativeText,
+    `${label}: legacy and native preflight markers differ\nlegacy:\n${legacyText || "(none)"}\nnative:\n${nativeText || "(none)"}`,
+  );
 }
 
 function required(value, message) {

@@ -182,6 +182,8 @@ The rewrite preflight blocks new numbers, thresholds, percentages, deadlines, na
 
 Stage 1 rewrite-safety migration keeps `scripts/rewrite-safety.js` as a wrapper while Shen/SBCL derives parity safety flags through `shen/run-rewrite-safety.shen`. The parity suite compares legacy JS behavior with Shen-derived acceptance for invented thresholds, named programs, user-supplied insertions, deleted protected claims, preserved unresolved protected claims, and transit-pass gap-fill contradictions.
 
+Stage 2 preflight migration moves compound-atom, decomposition, and value-criteria marker classification into Shen/SBCL through `shen/run-preflight.shen`. `./logicbox preflight`, `./logicbox check`, and `./logicbox mutation` use Shen-native preflight by default; pass `--legacy-js-preflight` to temporarily compare against `scripts/preflight-facts.js`.
+
 Structure-only rewrites must also preserve protected claims. A rewrite may mark a protected claim unresolved, but it may not replace it with `[undefined: fill missing information]` or omit it. Protected roles include main recommendations, core/scope conditions, objections, concessions, rebuttals, safeguards, mitigations, exceptions, equity guardrails, and value conclusions.
 
 Use protected-role facts in symbolic mutation checks:

@@ -97,6 +97,196 @@
   Fact [Fact | _] -> true
   Fact [_ | Rest] -> (fact-present? Fact Rest))
 
+(define snoc
+  [] X -> [X]
+  [Y | Ys] X -> [Y | (snoc Ys X)])
+
+(define string-empty?
+  "" -> true
+  _ -> false)
+
+(define string-prefix?
+  "" S -> true
+  Prefix "" -> false
+  Prefix S -> (if (= (hdstr Prefix) (hdstr S))
+               (string-prefix? (tlstr Prefix) (tlstr S))
+               false))
+
+(define string-contains?
+  Needle S -> (if (string-prefix? Needle S)
+               true
+               (if (string-empty? S)
+                false
+                (string-contains? Needle (tlstr S)))))
+
+(define string-suffix?
+  Suffix S -> (if (= Suffix S)
+               true
+               (if (string-empty? S)
+                false
+                (string-suffix? Suffix (tlstr S)))))
+
+(define atom-string
+  X -> (str X))
+
+(define compressed-prefix?
+  S -> (if (string-prefix? "better-" S) true
+        (if (string-prefix? "worse-" S) true
+        (if (string-prefix? "more-" S) true
+        (if (string-prefix? "less-" S) true
+        (if (string-prefix? "increased-" S) true
+        (if (string-prefix? "increase-" S) true
+        (if (string-prefix? "reduced-" S) true
+        (if (string-prefix? "reduce-" S) true
+        (if (string-prefix? "decreased-" S) true
+        (if (string-prefix? "decrease-" S) true
+        (if (string-prefix? "improved-" S) true
+        (if (string-prefix? "improve-" S) true
+        (if (string-prefix? "fairer-" S) true
+        (if (string-prefix? "weaker-" S) true
+        (if (string-prefix? "stronger-" S) true
+        (if (string-prefix? "high-" S) true
+        (string-prefix? "low-" S))))))))))))))))))
+
+(define compressed-word?
+  S -> (if (string-contains? "reform" S) true
+        (if (string-contains? "outcome" S) true
+        (if (string-contains? "solution" S) true
+        (if (string-contains? "program" S) true
+        (if (string-contains? "policy" S) true
+        (if (string-contains? "choice" S) true
+        (if (string-contains? "ban" S) true
+        (if (string-contains? "monitoring" S) true
+        (if (string-contains? "productivity" S) true
+        (if (string-contains? "methodology" S) true
+        (if (string-contains? "methodologies" S) true
+        (if (string-contains? "scalability" S) true
+        (if (string-contains? "adaptability" S) true
+        (if (string-contains? "student-centered" S) true
+        (if (string-contains? "does-not" S) true
+        (string-contains? "not-hurt" S)))))))))))))))))
+
+(define standalone-value-word?
+  "fairness" -> true
+  "justice" -> true
+  "privacy" -> true
+  "trust" -> true
+  "discipline" -> true
+  "practicality" -> true
+  "responsibility" -> true
+  "necessity" -> true
+  _ -> false)
+
+(define compressed-domain-atom?
+  X -> (let S (atom-string X)
+        (if (= S "unknown")
+         false
+         (if (standalone-value-word? S)
+          true
+          (if (string-contains? "-" S)
+           (if (compressed-prefix? S) true (compressed-word? S))
+           false)))))
+
+(define needs-decomposition-native?
+  X -> (let S (atom-string X)
+        (if (= S "diagnosis") true
+        (if (string-contains? "diagnose" S) true
+        (if (string-contains? "patients-told" S) true
+        (if (string-contains? "told" S) true
+        (if (string-contains? "notify" S) true
+        (if (string-contains? "override" S) true
+        (if (string-contains? "final-treatment-decision" S) true
+        (if (string-contains? "final-admissions-decision" S) true
+        (if (string-contains? "decision" S) true
+        (if (string-contains? "rank-by" S) true
+        (if (string-contains? "infer-race" S) true
+        (string-contains? "infer-income" S))))))))))))))
+
+(define fairness-value-string?
+  S -> (if (= S "fair") true
+        (if (= S "fairness") true
+        (if (string-suffix? "-is-fair" S) true
+        (string-contains? "-fair-" S)))))
+
+(define safety-value-string?
+  S -> (if (= S "safe") true
+        (if (= S "safety") true
+        (if (string-suffix? "-is-safe" S) true
+        (string-contains? "-safe-" S)))))
+
+(define necessity-value-string?
+  S -> (if (= S "necessary") true
+        (if (= S "necessity") true
+        (if (string-contains? "necessary-improvement" S) true
+        (string-suffix? "-is-necessary" S)))))
+
+(define efficiency-value-string?
+  S -> (if (= S "efficient") true
+        (if (= S "efficiency") true
+        (string-suffix? "-is-efficient" S))))
+
+(define responsibility-value-string?
+  S -> (if (= S "responsible") true
+        (if (= S "responsibility") true
+        (if (string-suffix? "-is-responsible" S) true
+        (string-contains? "responsible" S)))))
+
+(define practicality-value-string?
+  S -> (if (= S "practical") true
+        (if (= S "practicality") true
+        (string-suffix? "-is-practical" S))))
+
+(define value-criteria-type-native
+  X -> (let S (atom-string X)
+        (if (fairness-value-string? S) fairness
+        (if (safety-value-string? S) safety
+        (if (necessity-value-string? S) necessity
+        (if (efficiency-value-string? S) efficiency
+        (if (responsibility-value-string? S) responsibility
+        (if (practicality-value-string? S) practicality
+        none))))))))
+
+(define value-criteria-type-known?
+  none -> false
+  _ -> true)
+
+(define preflight-classification-marker
+  X -> (let V (value-criteria-type-native X)
+        (if (value-criteria-type-known? V)
+         [value-criteria-candidate X V]
+         (if (needs-decomposition-native? X)
+          [decomposition-candidate X]
+          (if (compressed-domain-atom? X)
+           [compound-domain-atom X]
+           [])))))
+
+(define add-preflight-marker
+  X Acc Facts -> (let Marker (preflight-classification-marker X)
+            (if (= Marker [])
+             Acc
+             (if (fact-present? Marker Acc)
+              Acc
+              (snoc Acc Marker)))))
+
+(define collect-preflight-classification-flags-h
+  [] Acc Facts -> Acc
+  [[term X _] | Rest] Acc Facts -> (collect-preflight-classification-flags-h Rest (add-preflight-marker X Acc Facts) Facts)
+  [[claim _ _ Source Target] | Rest] Acc Facts -> (collect-preflight-classification-flags-h Rest (add-preflight-marker Target (add-preflight-marker Source Acc Facts) Facts) Facts)
+  [[rewrite-claim _ _ Source Target] | Rest] Acc Facts -> (collect-preflight-classification-flags-h Rest (add-preflight-marker Target (add-preflight-marker Source Acc Facts) Facts) Facts)
+  [[ground-claim _ Source Target] | Rest] Acc Facts -> (collect-preflight-classification-flags-h Rest (add-preflight-marker Target (add-preflight-marker Source Acc Facts) Facts) Facts)
+  [[conclusion _ X] | Rest] Acc Facts -> (collect-preflight-classification-flags-h Rest (add-preflight-marker X Acc Facts) Facts)
+  [[mechanism _ X] | Rest] Acc Facts -> (collect-preflight-classification-flags-h Rest (add-preflight-marker X Acc Facts) Facts)
+  [[outcome _ X] | Rest] Acc Facts -> (collect-preflight-classification-flags-h Rest (add-preflight-marker X Acc Facts) Facts)
+  [[risk _ X] | Rest] Acc Facts -> (collect-preflight-classification-flags-h Rest (add-preflight-marker X Acc Facts) Facts)
+  [[claim-content _ X] | Rest] Acc Facts -> (collect-preflight-classification-flags-h Rest (add-preflight-marker X Acc Facts) Facts)
+  [_ | Rest] Acc Facts -> (collect-preflight-classification-flags-h Rest Acc Facts))
+
+(define collect-preflight-classification-flags
+  Facts -> (collect-preflight-classification-flags-h Facts [] Facts))
+
+(define preflight-enriched-facts
+  Facts -> (append Facts (collect-preflight-classification-flags Facts)))
+
 (define compound-domain-atom?
   X [] -> false
   X [[compound-domain-atom X] | _] -> true
@@ -1265,7 +1455,7 @@
 (define collect-evidence-needed
   Facts -> (collect-evidence-needed-h Facts Facts))
 
-(define blocking-flags
+(define blocking-flags-on
   Facts -> (append (collect-precomputed-flags Facts)
            (append (collect-extraction-contract-violations Facts)
            (append (collect-definition-needed Facts)
@@ -1314,6 +1504,9 @@
            (append (collect-scope-mutations Facts)
            (append (collect-source-mutations Facts)
                    (collect-target-mutations Facts)))))))))))))))))))))))))))))))))))))))))))))))))
+
+(define blocking-flags
+  Facts -> (blocking-flags-on Facts))
 
 (define collect-plan-status-h
   [] Facts -> []
