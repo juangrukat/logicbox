@@ -58,6 +58,12 @@ Run generated invariant checks with:
 ./logicbox fuzz
 ```
 
+Run only the extraction preflight with:
+
+```sh
+./logicbox preflight
+```
+
 ## How To Use It
 
 The normal workflow is small and file-based:
@@ -70,13 +76,15 @@ The normal workflow is small and file-based:
 6. Clarify the paragraph or the intended meaning.
 7. Update `work/ai-facts.shen` and run `./logicbox check` again.
 
-For a rewrite pass:
+For a safe prose rewrite:
 
-1. Put the proposed rewrite in `work/rewrite.md`.
-2. Ask the AI to extract rewrite facts into `work/rewrite-facts.shen`.
-3. Run `./logicbox mutation`.
-4. Read `output/mutation-output.txt`.
-5. If mutation flags appear, decide whether the rewrite changed the intended meaning.
+1. Put a machine-checkable rewrite patch in `work/rewrite-patch.json`.
+2. Run `./logicbox rewrite-preflight`.
+3. Run `./logicbox rewrite`.
+4. Read `work/rewrite.md` and `output/rewrite-report.md`.
+5. Keep unresolved facts visible as bracketed gaps instead of filling them.
+
+For a symbolic meaning-drift check, put rewrite-derived facts in `work/rewrite-facts.shen` and run `./logicbox mutation`.
 
 The human remains the authority on meaning. If Shen flags something because the AI encoded your meaning incorrectly, fix the facts rather than rewriting the prose.
 
@@ -110,6 +118,117 @@ For each draft, the AI should:
 
 The AI supplies semantic relationships. Shen derives the warnings.
 
+## Compile-Check-Repair
+
+Use LogicBox like a tiny compiler while translating prose:
+
+1. Draft candidate facts in `work/ai-facts.shen`.
+2. Run `./logicbox preflight`.
+3. Repair compact atoms and obvious decomposition errors.
+4. Run `./logicbox check`.
+5. Repair translation errors such as `extraction-contract-violation`, `decomposition-needed`, malformed fact shape, and missing definitions already supplied by the prose.
+6. Leave real argument diagnostics in place, including `value-criteria-needed`, `missing-context`, `mitigation-needs-sufficiency-check`, `claim-without-ground`, `analogy-needs-comparability`, `unclear-scope`, and evidence gaps.
+7. Explain only the remaining Shen-derived flags.
+
+Default mode is structure-only: no internet and no factual truth checking. Evidence suggestion and evidence augmentation can be added later as explicit modes, with external additions marked separately from the original argument.
+
+## Rewrite Safety
+
+LogicBox rewrites are patch-first. The AI should not jump from diagnostics to polished prose. The safe pipeline is:
+
+```text
+diagnose draft
+-> produce rewrite patch
+-> preflight rewrite patch
+-> apply patch to prose
+-> mutation check
+-> final rewrite + gap list
+```
+
+Rewrite patches have an explicit mode:
+
+- `structure_only`: default. Clarify, split, reorder, preserve meaning, and expose missing information as bracketed placeholders.
+- `rewrite_with_user_facts`: may fill placeholders only with facts the user explicitly supplied.
+- `evidence_mode`: may add external facts only when they are marked as externally sourced.
+
+In `structure_only`, allowed patch operations are `keep`, `split`, `move`, `rephrase`, `surface-implicit-criterion`, `insert-placeholder`, `label`, and `mark-unresolved`.
+
+The rewrite preflight blocks new numbers, thresholds, percentages, deadlines, named programs, proper nouns, empirical claims, comparison claims, implementation procedures, groups, stronger modality, and uniqueness claims unless they are represented as placeholders.
+
+Gap objects are first-class:
+
+```json
+{
+  "id": "G1",
+  "type": "threshold-needed",
+  "subject": "large apartment buildings",
+  "prompt": "define which buildings count as \"large\""
+}
+```
+
+A structure-only rewrite should use the gap instead of inventing the missing fact:
+
+```text
+The city should require large apartment buildings — [G1: define which buildings count as "large"] — to install smart cooling systems.
+```
+
+Every changed sentence needs provenance such as `CLARIFIED`, `REORDERED`, `BRACKETED_GAP`, or `SURFACED_CRITERIA`. Unlabeled additions are rejected.
+
+Run the safe rewrite path with:
+
+```sh
+./logicbox rewrite-preflight
+./logicbox rewrite
+./logicbox rewrite-mutation
+```
+
+The final report contains:
+
+1. Structure-only rewrite
+2. Gap list
+3. Mutation report
+
+Core rule: the rewrite may reduce confusion, but it may not reduce factual uncertainty.
+
+## Symbol Contract
+
+The extraction layer should emit a typed argument graph, not compact labels that hide domain structure. Shen can inspect `(action c1 ban)`, `(target c1 private-car-use)`, and `(location c1 downtown)`; it cannot inspect the internal meaning of a single atom like `downtown-car-ban`.
+
+Forbidden style:
+
+```shen
+[term downtown-car-ban known]
+[term better-outcomes unknown]
+```
+
+Preferred style:
+
+```shen
+[term c1 claim]
+[agent c1 city-government]
+[action c1 ban]
+[target c1 private-car-use]
+[location c1 downtown]
+[timeframe c1 five-years]
+[modality c1 deontic-recommendation]
+```
+
+For policy-style arguments, use primitive facts such as `term`, `action`, `target`, `agent`, `location`, `timeframe`, `modality`, `reason-type`, `outcome`, `objects-to`, `mitigates`, `exempts`, `analogizes-from`, and `supports`. If a draft phrase cannot be mapped cleanly, represent it as unknown plus a definition instead of inventing a semantic-rich atom.
+
+The command-line `check` and `mutation` paths run `scripts/preflight-facts.js` before Shen. That script appends marker facts for suspicious compact atoms, action-like atoms that should be decomposed, and value terms that need criteria. Shen then reports extraction and classification diagnostics in the same file-based workflow.
+
+Typed claim nodes may carry scope directly:
+
+```shen
+[term c1 claim]
+[location c1 admissions-office]
+[population c1 undergraduate-applications]
+[timeframe c1 next-cycle]
+[scope-status c1 conditional]
+```
+
+Those fields count as scoped structure. Use `scope-status` values such as `unknown`, `underspecified`, or `unbounded` only when Shen should derive `unclear-scope`.
+
 ## Reading The Output
 
 `[clear-enough p1]` means the current plan has no blocking structural flags. It does not mean the argument is true.
@@ -118,7 +237,10 @@ The AI supplies semantic relationships. Shen derives the warnings.
 
 Common flags:
 
-- `[undefined-term X]`: a key term needs a definition or replacement.
+- `[extraction-contract-violation X]`: the extractor packed domain meaning into an opaque atom; decompose it into fields before judging the draft.
+- `[definition-needed X]`: a legitimate concept needs an operational definition.
+- `[decomposition-needed X]`: an action or condition should be represented as primitive predicates instead of a term.
+- `[value-criteria-needed X V]`: a value conclusion such as fairness, safety, or responsibility needs criteria.
 - `[missing-mechanism C]`: a causal claim lacks a represented mechanism.
 - `[mechanism-restates-source ...]`: the explanation may repeat the starting point.
 - `[mechanism-restates-target ...]`: the explanation may repeat the desired result.
@@ -231,7 +353,7 @@ The AI may write facts like:
 The AI must not write derived flags like:
 
 ```shen
-[undefined-term online-learning]
+[definition-needed online-learning]
 [missing-mechanism c1]
 [mechanism-restates-source c1 source mechanism]
 [mechanism-restates-target c1 target mechanism]
@@ -314,8 +436,12 @@ improved information for future choices
 
 Current Shen-derived flags:
 
-- `[undefined-term X]`
+- `[extraction-contract-violation X]`
+- `[definition-needed X]`
+- `[decomposition-needed X]`
+- `[value-criteria-needed X V]`
 - `[missing-mechanism C]`
+- `[mechanism-needs-causal-path M]`
 - `[unclear-modality C]`
 - `[unclear-scope C]`
 - `[mechanism-restates-source C Source Mechanism]`
@@ -398,7 +524,7 @@ Candidate facts:
 Expected Shen output:
 
 ```shen
-[undefined-term better-outcomes]
+[extraction-contract-violation better-outcomes]
 [unclear-modality c1]
 [unclear-scope c1]
 [mechanism-restates-source c1 adjust-based-on-results repeat-what-works]

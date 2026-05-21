@@ -58,6 +58,12 @@
 (define fact-scope-known?
   F [] -> false
   F [[fact-scope F _] | _] -> true
+  F [[scope F _] | _] -> true
+  F [[scope-status F _] | _] -> true
+  F [[location F _] | _] -> true
+  F [[setting F _] | _] -> true
+  F [[population F _] | _] -> true
+  F [[timeframe F _] | _] -> true
   F [_ | Rest] -> (fact-scope-known? F Rest))
 
 (define fact-has-scope?
@@ -76,6 +82,119 @@
   C1 C2 [[context-incompatible C1 C2] | _] -> true
   C1 C2 [[context-incompatible C2 C1] | _] -> true
   C1 C2 [_ | Rest] -> (context-incompatible? C1 C2 Rest))
+
+(define equal-symbol?
+  X X -> true
+  _ _ -> false)
+
+(define term-is?
+  X Kind [] -> false
+  X Kind [[term X Kind] | _] -> true
+  X Kind [_ | Rest] -> (term-is? X Kind Rest))
+
+(define compound-domain-atom?
+  X [] -> false
+  X [[compound-domain-atom X] | _] -> true
+  X [_ | Rest] -> (compound-domain-atom? X Rest))
+
+(define decomposition-candidate?
+  X [] -> false
+  X [[decomposition-candidate X] | _] -> true
+  X [_ | Rest] -> (decomposition-candidate? X Rest))
+
+(define value-criteria-candidate?
+  X [] -> false
+  X [[value-criteria-candidate X _] | _] -> true
+  X [_ | Rest] -> (value-criteria-candidate? X Rest))
+
+(define claim-node?
+  C [] -> false
+  C [[claim C _ _ _] | _] -> true
+  C [[term C claim] | _] -> true
+  C [[term C value-conclusion] | _] -> true
+  C [_ | Rest] -> (claim-node? C Rest))
+
+(define has-scope-status?
+  X Status [] -> false
+  X Status [[scope-status X Status] | _] -> true
+  X Status [_ | Rest] -> (has-scope-status? X Status Rest))
+
+(define unclear-scope-status?
+  unknown -> true
+  underspecified -> true
+  unbounded -> true
+  unclear -> true
+  _ -> false)
+
+(define typed-scope-unclear?
+  X [] -> false
+  X [[scope-status X Status] | _] -> (unclear-scope-status? Status)
+  X [_ | Rest] -> (typed-scope-unclear? X Rest))
+
+(define objection-answered?
+  O [] -> false
+  O [[mitigates _ O] | _] -> true
+  O [[rebuts _ O] | _] -> true
+  O [[concedes _ O] | _] -> true
+  O [_ | Rest] -> (objection-answered? O Rest))
+
+(define sufficiency-known?
+  M [] -> false
+  M [[sufficiency M sufficient] | _] -> true
+  M [[sufficiency M shown] | _] -> true
+  M [[sufficiency-status M sufficient] | _] -> true
+  M [[sufficiency-status M shown] | _] -> true
+  M [[evidence-status M provided] | _] -> true
+  M [[evidence-status M present] | _] -> true
+  M [_ | Rest] -> (sufficiency-known? M Rest))
+
+(define criteria-known?
+  X [] -> false
+  X [[criteria-status X specified] | _] -> true
+  X [[criteria-status X defined] | _] -> true
+  X [[criteria-status X shown] | _] -> true
+  X [_ | Rest] -> (criteria-known? X Rest))
+
+(define source-condition-known?
+  M [] -> false
+  M [[source-condition M _] | _] -> true
+  M [_ | Rest] -> (source-condition-known? M Rest))
+
+(define process-known?
+  M [] -> false
+  M [[process M _] | _] -> true
+  M [_ | Rest] -> (process-known? M Rest))
+
+(define intermediate-effect-known?
+  M [] -> false
+  M [[intermediate-effect M _] | _] -> true
+  M [_ | Rest] -> (intermediate-effect-known? M Rest))
+
+(define final-outcome-known?
+  M [] -> false
+  M [[final-outcome M _] | _] -> true
+  M [_ | Rest] -> (final-outcome-known? M Rest))
+
+(define mechanism-path-complete?
+  M Facts -> (if (source-condition-known? M Facts)
+              (if (process-known? M Facts)
+               (if (intermediate-effect-known? M Facts)
+                (final-outcome-known? M Facts)
+                false)
+               false)
+              false))
+
+(define comparability-known?
+  A [] -> false
+  A [[comparability A known] | _] -> true
+  A [[comparability A shown] | _] -> true
+  A [_ | Rest] -> (comparability-known? A Rest))
+
+(define boundary-known?
+  E [] -> false
+  E [[boundary-status E defined] | _] -> true
+  E [[boundary-status E bounded] | _] -> true
+  E [_ | Rest] -> (boundary-known? E Rest))
 
 (define scope-transition-invalid?
   From To [] -> false
@@ -113,9 +232,13 @@
   [_ | Rest] -> (plan-membership-mode? Rest))
 
 (define claim-belongs-to-plan?
-  P C [] -> false
-  P C [[plan-claim P C] | _] -> true
-  P C [_ | Rest] -> (claim-belongs-to-plan? P C Rest))
+  P C Facts -> (claim-belongs-to-plan-h P C Facts Facts))
+
+(define claim-belongs-to-plan-h
+  P C [] Facts -> false
+  P C [[plan-claim P C] | _] Facts -> true
+  P C [[plan-fact P C] | _] Facts -> (claim-node? C Facts)
+  P C [_ | Rest] Facts -> (claim-belongs-to-plan-h P C Rest Facts))
 
 (define ground-belongs-to-plan?
   P G [] -> false
@@ -137,10 +260,16 @@
   P [precomputed-flag plan-incomplete P] Facts -> true
   P [precomputed-flag missing-mechanism C] Facts -> (claim-belongs-to-plan? P C Facts)
   P [precomputed-flag missing-context C _] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [extraction-contract-violation _] Facts -> true
+  P [definition-needed _] Facts -> true
+  P [decomposition-needed _] Facts -> true
+  P [value-criteria-needed _ _] Facts -> true
+  P [mechanism-needs-causal-path _] Facts -> true
   P [undefined-term X] Facts -> false
   P [missing-mechanism C] Facts -> (claim-belongs-to-plan? P C Facts)
   P [unclear-modality C] Facts -> (claim-belongs-to-plan? P C Facts)
   P [unclear-scope C] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [unclear-scope C _ _] Facts -> (claim-belongs-to-plan? P C Facts)
   P [mechanism-restates-source C _ _] Facts -> (claim-belongs-to-plan? P C Facts)
   P [mechanism-restates-target C _ _] Facts -> (claim-belongs-to-plan? P C Facts)
   P [mechanism-too-abstract C _] Facts -> (claim-belongs-to-plan? P C Facts)
@@ -160,6 +289,14 @@
   P [scope-transition-conflict F _ _] Facts -> (fact-belongs-to-plan? P F Facts)
   P [global-term-redefined-locally _ F1 F2] Facts -> (if (fact-belongs-to-plan? P F1 Facts) true (fact-belongs-to-plan? P F2 Facts))
   P [shadowed-support G _ _] Facts -> (ground-belongs-to-plan? P G Facts)
+  P [modality-mixed C] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [unresolved-objection C _] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [mitigation-needs-sufficiency-check _ O] Facts -> true
+  P [analogy-needs-comparability _] Facts -> true
+  P [popularity-weak-support _ C] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [exception-boundary-needed _] Facts -> true
+  P [broad-ban-vs-exemptions C _] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [evidence-needed _ _] Facts -> true
   P [modality-mutation C _ _ _] Facts -> (claim-belongs-to-plan? P C Facts)
   P [scope-mutation C _ _ _] Facts -> (claim-belongs-to-plan? P C Facts)
   P [source-mutation C _ _ _] Facts -> (claim-belongs-to-plan? P C Facts)
@@ -182,13 +319,50 @@
   practical-outperformance -> true
   _ -> false)
 
-(define collect-undefined-terms
+(define collect-definition-needed
+  Facts -> (collect-definition-needed-h Facts Facts))
+
+(define collect-definition-needed-h
+  [] Facts -> []
+  [[term X unknown] | Rest] Facts -> (if (compound-domain-atom? X Facts)
+                                       (collect-definition-needed-h Rest Facts)
+                                       (if (decomposition-candidate? X Facts)
+                                        (collect-definition-needed-h Rest Facts)
+                                        (if (value-criteria-candidate? X Facts)
+                                         (collect-definition-needed-h Rest Facts)
+                                         [[definition-needed X] | (collect-definition-needed-h Rest Facts)])))
+  [_ | Rest] Facts -> (collect-definition-needed-h Rest Facts))
+
+(define collect-extraction-contract-violations
   [] -> []
-  [[term X unknown] | Rest] -> [[undefined-term X] | (collect-undefined-terms Rest)]
-  [_ | Rest] -> (collect-undefined-terms Rest))
+  [[compound-domain-atom X] | Rest] -> [[extraction-contract-violation X] | (collect-extraction-contract-violations Rest)]
+  [_ | Rest] -> (collect-extraction-contract-violations Rest))
+
+(define collect-decomposition-needed
+  [] -> []
+  [[decomposition-candidate X] | Rest] -> [[decomposition-needed X] | (collect-decomposition-needed Rest)]
+  [_ | Rest] -> (collect-decomposition-needed Rest))
+
+(define collect-value-criteria-needed-h
+  [] Facts -> []
+  [[value-criteria-candidate X Value] | Rest] Facts -> (if (criteria-known? X Facts)
+                                                         (collect-value-criteria-needed-h Rest Facts)
+                                                         [[value-criteria-needed X Value] | (collect-value-criteria-needed-h Rest Facts)])
+  [[value-type X Value] | Rest] Facts -> (if (criteria-known? X Facts)
+                                           (collect-value-criteria-needed-h Rest Facts)
+                                           [[value-criteria-needed X Value] | (collect-value-criteria-needed-h Rest Facts)])
+  [_ | Rest] Facts -> (collect-value-criteria-needed-h Rest Facts))
+
+(define collect-value-criteria-needed
+  Facts -> (collect-value-criteria-needed-h Facts Facts))
 
 (define collect-precomputed-flags
   [] -> []
+  [[extraction-contract-violation X] | Rest] -> [[precomputed-flag extraction-contract-violation X] | (collect-precomputed-flags Rest)]
+  [[definition-needed X] | Rest] -> [[precomputed-flag definition-needed X] | (collect-precomputed-flags Rest)]
+  [[decomposition-needed X] | Rest] -> [[precomputed-flag decomposition-needed X] | (collect-precomputed-flags Rest)]
+  [[value-criteria-needed X V] | Rest] -> [[precomputed-flag value-criteria-needed X V] | (collect-precomputed-flags Rest)]
+  [[mechanism-needs-causal-path M] | Rest] -> [[precomputed-flag mechanism-needs-causal-path M] | (collect-precomputed-flags Rest)]
   [[undefined-term X] | Rest] -> [[precomputed-flag undefined-term X] | (collect-precomputed-flags Rest)]
   [[missing-mechanism C] | Rest] -> [[precomputed-flag missing-mechanism C] | (collect-precomputed-flags Rest)]
   [[mechanism-restates-source C Source M] | Rest] -> [[precomputed-flag mechanism-restates-source C Source M] | (collect-precomputed-flags Rest)]
@@ -196,6 +370,7 @@
   [[mechanism-too-abstract C M] | Rest] -> [[precomputed-flag mechanism-too-abstract C M] | (collect-precomputed-flags Rest)]
   [[unclear-modality C] | Rest] -> [[precomputed-flag unclear-modality C] | (collect-precomputed-flags Rest)]
   [[unclear-scope C] | Rest] -> [[precomputed-flag unclear-scope C] | (collect-precomputed-flags Rest)]
+  [[unclear-scope C K V] | Rest] -> [[precomputed-flag unclear-scope C K V] | (collect-precomputed-flags Rest)]
   [[missing-context C Ctx] | Rest] -> [[precomputed-flag missing-context C Ctx] | (collect-precomputed-flags Rest)]
   [[conclusion-stronger-than-premises P K Old New] | Rest] -> [[precomputed-flag conclusion-stronger-than-premises P K Old New] | (collect-precomputed-flags Rest)]
   [[conclusion-stronger-than-ground G K Old New] | Rest] -> [[precomputed-flag conclusion-stronger-than-ground G K Old New] | (collect-precomputed-flags Rest)]
@@ -210,6 +385,14 @@
   [[scope-transition-conflict F S1 S2] | Rest] -> [[precomputed-flag scope-transition-conflict F S1 S2] | (collect-precomputed-flags Rest)]
   [[global-term-redefined-locally Term F1 F2] | Rest] -> [[precomputed-flag global-term-redefined-locally Term F1 F2] | (collect-precomputed-flags Rest)]
   [[shadowed-support G F1 F2] | Rest] -> [[precomputed-flag shadowed-support G F1 F2] | (collect-precomputed-flags Rest)]
+  [[modality-mixed C] | Rest] -> [[precomputed-flag modality-mixed C] | (collect-precomputed-flags Rest)]
+  [[unresolved-objection C O] | Rest] -> [[precomputed-flag unresolved-objection C O] | (collect-precomputed-flags Rest)]
+  [[mitigation-needs-sufficiency-check M O] | Rest] -> [[precomputed-flag mitigation-needs-sufficiency-check M O] | (collect-precomputed-flags Rest)]
+  [[analogy-needs-comparability A] | Rest] -> [[precomputed-flag analogy-needs-comparability A] | (collect-precomputed-flags Rest)]
+  [[popularity-weak-support P C] | Rest] -> [[precomputed-flag popularity-weak-support P C] | (collect-precomputed-flags Rest)]
+  [[exception-boundary-needed E] | Rest] -> [[precomputed-flag exception-boundary-needed E] | (collect-precomputed-flags Rest)]
+  [[broad-ban-vs-exemptions C E] | Rest] -> [[precomputed-flag broad-ban-vs-exemptions C E] | (collect-precomputed-flags Rest)]
+  [[evidence-needed R M] | Rest] -> [[precomputed-flag evidence-needed R M] | (collect-precomputed-flags Rest)]
   [[context-conflict C1 C2] | Rest] -> [[precomputed-flag context-conflict C1 C2] | (collect-precomputed-flags Rest)]
   [[context-scope-leak C Ctx S1 S2] | Rest] -> [[precomputed-flag context-scope-leak C Ctx S1 S2] | (collect-precomputed-flags Rest)]
   [[modality-mutation C R Old New] | Rest] -> [[precomputed-flag modality-mutation C R Old New] | (collect-precomputed-flags Rest)]
@@ -526,6 +709,116 @@
 (define collect-shadowed-support
   Facts -> (collect-shadowed-support-h Facts Facts))
 
+(define collect-unclear-location-scope-h
+  [] Facts -> []
+  [[location C Loc] | Rest] Facts -> (if (typed-scope-unclear? C Facts)
+                                       [[unclear-scope C location Loc] | (collect-unclear-location-scope-h Rest Facts)]
+                                       (collect-unclear-location-scope-h Rest Facts))
+  [_ | Rest] Facts -> (collect-unclear-location-scope-h Rest Facts))
+
+(define collect-unclear-location-scope
+  Facts -> (collect-unclear-location-scope-h Facts Facts))
+
+(define collect-modality-mixed-h
+  [] Facts -> []
+  [[supports R C] | Rest] Facts -> (if (term-is? C claim Facts)
+                                     (append (collect-modality-mixed-for R C Facts Facts)
+                                             (collect-modality-mixed-h Rest Facts))
+                                     (collect-modality-mixed-h Rest Facts))
+  [_ | Rest] Facts -> (collect-modality-mixed-h Rest Facts))
+
+(define collect-modality-mixed-for
+  R C [] Facts -> []
+  R C [[modality C M1] | Rest] Facts -> (append (collect-modality-mixed-reason R C M1 Facts Facts)
+                                                (collect-modality-mixed-for R C Rest Facts))
+  R C [_ | Rest] Facts -> (collect-modality-mixed-for R C Rest Facts))
+
+(define collect-modality-mixed-reason
+  R C M1 [] Facts -> []
+  R C M1 [[modality R M2] | Rest] Facts -> (if (equal-symbol? M1 M2)
+                                             (collect-modality-mixed-reason R C M1 Rest Facts)
+                                             [[modality-mixed C] | (collect-modality-mixed-reason R C M1 Rest Facts)])
+  R C M1 [_ | Rest] Facts -> (collect-modality-mixed-reason R C M1 Rest Facts))
+
+(define collect-modality-mixed
+  Facts -> (collect-modality-mixed-h Facts Facts))
+
+(define collect-unresolved-objections-h
+  [] Facts -> []
+  [[objects-to O C] | Rest] Facts -> (if (objection-answered? O Facts)
+                                       (collect-unresolved-objections-h Rest Facts)
+                                       [[unresolved-objection C O] | (collect-unresolved-objections-h Rest Facts)])
+  [_ | Rest] Facts -> (collect-unresolved-objections-h Rest Facts))
+
+(define collect-unresolved-objections
+  Facts -> (collect-unresolved-objections-h Facts Facts))
+
+(define collect-mitigation-sufficiency-h
+  [] Facts -> []
+  [[mitigates M O] | Rest] Facts -> (if (sufficiency-known? M Facts)
+                                      (collect-mitigation-sufficiency-h Rest Facts)
+                                      [[mitigation-needs-sufficiency-check M O] | (collect-mitigation-sufficiency-h Rest Facts)])
+  [_ | Rest] Facts -> (collect-mitigation-sufficiency-h Rest Facts))
+
+(define collect-mitigation-sufficiency
+  Facts -> (collect-mitigation-sufficiency-h Facts Facts))
+
+(define collect-analogy-comparability-h
+  [] Facts -> []
+  [[term A analogy] | Rest] Facts -> (if (comparability-known? A Facts)
+                                       (collect-analogy-comparability-h Rest Facts)
+                                       [[analogy-needs-comparability A] | (collect-analogy-comparability-h Rest Facts)])
+  [_ | Rest] Facts -> (collect-analogy-comparability-h Rest Facts))
+
+(define collect-analogy-comparability
+  Facts -> (collect-analogy-comparability-h Facts Facts))
+
+(define collect-popularity-weak-support-h
+  [] Facts -> []
+  [[supports P C] | Rest] Facts -> (if (term-is? P popularity-claim Facts)
+                                     [[popularity-weak-support P C] | (collect-popularity-weak-support-h Rest Facts)]
+                                     (collect-popularity-weak-support-h Rest Facts))
+  [_ | Rest] Facts -> (collect-popularity-weak-support-h Rest Facts))
+
+(define collect-popularity-weak-support
+  Facts -> (collect-popularity-weak-support-h Facts Facts))
+
+(define collect-exception-boundaries-h
+  [] Facts -> []
+  [[term E exception] | Rest] Facts -> (if (boundary-known? E Facts)
+                                         (collect-exception-boundaries-h Rest Facts)
+                                         [[exception-boundary-needed E] | (collect-exception-boundaries-h Rest Facts)])
+  [_ | Rest] Facts -> (collect-exception-boundaries-h Rest Facts))
+
+(define collect-exception-boundaries
+  Facts -> (collect-exception-boundaries-h Facts Facts))
+
+(define collect-broad-ban-exceptions-h
+  [] Facts -> []
+  [[action C ban] | Rest] Facts -> (append (collect-broad-ban-exceptions-for C Facts Facts)
+                                           (collect-broad-ban-exceptions-h Rest Facts))
+  [_ | Rest] Facts -> (collect-broad-ban-exceptions-h Rest Facts))
+
+(define collect-broad-ban-exceptions-for
+  C [] Facts -> []
+  C [[applies-to E C] | Rest] Facts -> (if (term-is? E exception Facts)
+                                         [[broad-ban-vs-exemptions C E] | (collect-broad-ban-exceptions-for C Rest Facts)]
+                                         (collect-broad-ban-exceptions-for C Rest Facts))
+  C [_ | Rest] Facts -> (collect-broad-ban-exceptions-for C Rest Facts))
+
+(define collect-broad-ban-exceptions
+  Facts -> (collect-broad-ban-exceptions-h Facts Facts))
+
+(define collect-mechanism-path-needed-h
+  [] Facts -> []
+  [[term M mechanism] | Rest] Facts -> (if (mechanism-path-complete? M Facts)
+                                         (collect-mechanism-path-needed-h Rest Facts)
+                                         [[mechanism-needs-causal-path M] | (collect-mechanism-path-needed-h Rest Facts)])
+  [_ | Rest] Facts -> (collect-mechanism-path-needed-h Rest Facts))
+
+(define collect-mechanism-path-needed
+  Facts -> (collect-mechanism-path-needed-h Facts Facts))
+
 (define collect-modality-mutations-h
   [] Facts -> []
   [[modality C Old] | Rest] Facts -> (append (collect-modality-mutations-for C Old Facts Facts)
@@ -590,9 +883,28 @@
 (define collect-target-mutations
   Facts -> (collect-target-mutations-h Facts Facts))
 
+(define evidence-known?
+  R [] -> false
+  R [[evidence R shown] | _] -> true
+  R [[evidence R provided] | _] -> true
+  R [_ | Rest] -> (evidence-known? R Rest))
+
+(define collect-evidence-needed-h
+  [] Facts -> []
+  [[metric R M] | Rest] Facts -> (if (evidence-known? R Facts)
+                                   (collect-evidence-needed-h Rest Facts)
+                                   [[evidence-needed R M] | (collect-evidence-needed-h Rest Facts)])
+  [_ | Rest] Facts -> (collect-evidence-needed-h Rest Facts))
+
+(define collect-evidence-needed
+  Facts -> (collect-evidence-needed-h Facts Facts))
+
 (define blocking-flags
   Facts -> (append (collect-precomputed-flags Facts)
-           (append (collect-undefined-terms Facts)
+           (append (collect-extraction-contract-violations Facts)
+           (append (collect-definition-needed Facts)
+           (append (collect-decomposition-needed Facts)
+           (append (collect-value-criteria-needed Facts)
            (append (collect-missing-mechanisms Facts)
            (append (collect-unclear-modalities Facts)
            (append (collect-unclear-scopes Facts)
@@ -615,10 +927,20 @@
            (append (collect-scope-transition-conflicts Facts)
            (append (collect-global-term-redefined-locally Facts)
            (append (collect-shadowed-support Facts)
+           (append (collect-unclear-location-scope Facts)
+           (append (collect-modality-mixed Facts)
+           (append (collect-unresolved-objections Facts)
+           (append (collect-mitigation-sufficiency Facts)
+           (append (collect-analogy-comparability Facts)
+           (append (collect-popularity-weak-support Facts)
+           (append (collect-exception-boundaries Facts)
+           (append (collect-broad-ban-exceptions Facts)
+           (append (collect-mechanism-path-needed Facts)
+           (append (collect-evidence-needed Facts)
            (append (collect-modality-mutations Facts)
            (append (collect-scope-mutations Facts)
            (append (collect-source-mutations Facts)
-                   (collect-target-mutations Facts)))))))))))))))))))))))))))))
+                   (collect-target-mutations Facts))))))))))))))))))))))))))))))))))))))))))
 
 (define collect-plan-status-h
   [] Facts -> []

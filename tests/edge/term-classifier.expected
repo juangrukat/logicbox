@@ -1,0 +1,5 @@
+[definition-needed nurse-confirmation]
+[decomposition-needed patients-told]
+[value-criteria-needed ai-triage-is-safe safety]
+[value-criteria-needed responsible-improvement responsibility]
+[plan-incomplete p1]

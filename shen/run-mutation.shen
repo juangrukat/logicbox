@@ -1,10 +1,13 @@
 \\ Runs only rewrite mutation checks and prints derived flags between markers.
 
 (define mutation-flags
-  Facts -> (append (collect-modality-mutations Facts)
+  Facts -> (append (collect-extraction-contract-violations Facts)
+           (append (collect-decomposition-needed Facts)
+           (append (collect-value-criteria-needed Facts)
+           (append (collect-modality-mutations Facts)
            (append (collect-scope-mutations Facts)
            (append (collect-source-mutations Facts)
-                   (collect-target-mutations Facts)))))
+                   (collect-target-mutations Facts))))))))
 
 (define print-flags
   [] -> (output "[]~%")

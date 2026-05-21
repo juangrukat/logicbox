@@ -9,13 +9,14 @@
     [plan-fact p1 f-term-better]
     [plan-context p1 result-measure-is-reliable]
     [plan-context p1 actor-can-change-future-actions]
-    [plan-check p1 undefined-term]
+    [plan-check p1 extraction-contract-violation]
     [plan-check p1 missing-context]
     [plan-check p1 stage-chain-too-short]
     [comment p1 "The paragraph appears to argue that feedback-based adjustment improves outcomes."]
 
     [term adjust-based-on-results known]
     [term better-outcomes unknown]
+    [compound-domain-atom better-outcomes]
     [term repeat-what-works known]
 
     [ground-claim g1 adjust-based-on-results repeat-what-works]

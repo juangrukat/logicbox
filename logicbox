@@ -7,14 +7,23 @@ WORK="$ROOT/work"
 OUT="$ROOT/output"
 FACTS="$WORK/ai-facts.shen"
 REWRITE_FACTS="$WORK/rewrite-facts.shen"
+REWRITE_PATCH="$WORK/rewrite-patch.json"
+REWRITE="$WORK/rewrite.md"
+PREFLIGHT_FACTS="$OUT/.preflight-facts.shen"
+REWRITE_REPORT="$OUT/rewrite-report.md"
 
 usage() {
   cat <<'EOF'
 LogicBox
 
 Usage:
+  ./logicbox preflight
   ./logicbox check
   ./logicbox mutation
+  ./logicbox rewrite-preflight
+  ./logicbox rewrite
+  ./logicbox rewrite-mutation
+  ./logicbox rewrite-test
   ./logicbox test
   ./logicbox stress
   ./logicbox gold
@@ -26,11 +35,12 @@ Usage:
 Workflow:
   1. Put prose in work/draft.txt.
   2. Put AI-proposed symbolic facts in work/ai-facts.shen.
-  3. Run ./logicbox check.
+  3. Run ./logicbox preflight or ./logicbox check.
   4. Read output/shen-output.txt.
 
-For rewrite checks, put rewrite-derived facts in work/rewrite-facts.shen
-and run ./logicbox mutation.
+For safe prose rewrites, put a rewrite patch in work/rewrite-patch.json
+and run ./logicbox rewrite. For symbolic rewrite checks, put rewrite-derived
+facts in work/rewrite-facts.shen and run ./logicbox mutation.
 
 The checker is Shen. The wrapper only runs Shen and saves output.
 EOF
@@ -89,6 +99,11 @@ assert_no_text() {
 }
 
 case "${1:-help}" in
+  preflight)
+    ensure_dirs
+    node "$ROOT/scripts/preflight-facts.js" "$FACTS" > "$PREFLIGHT_FACTS"
+    cat "$PREFLIGHT_FACTS"
+    ;;
   check)
     ensure_dirs
     if [[ ! -x "$SHEN" ]]; then
@@ -96,8 +111,10 @@ case "${1:-help}" in
       echo "Set SHEN_SBCL=/path/to/shen-sbcl and try again." >&2
       exit 1
     fi
+    node "$ROOT/scripts/preflight-facts.js" "$FACTS" > "$PREFLIGHT_FACTS"
     "$SHEN" \
       -l "$FACTS" \
+      -l "$PREFLIGHT_FACTS" \
       -l "$ROOT/shen/rules.shen" \
       -l "$ROOT/shen/run.shen" \
       > "$OUT/.shen-raw-output.txt"
@@ -111,14 +128,43 @@ case "${1:-help}" in
       echo "Set SHEN_SBCL=/path/to/shen-sbcl and try again." >&2
       exit 1
     fi
+    node "$ROOT/scripts/preflight-facts.js" "$FACTS" "$REWRITE_FACTS" > "$PREFLIGHT_FACTS"
     "$SHEN" \
       -l "$FACTS" \
       -l "$REWRITE_FACTS" \
+      -l "$PREFLIGHT_FACTS" \
       -l "$ROOT/shen/rules.shen" \
       -l "$ROOT/shen/run-mutation.shen" \
       > "$OUT/.shen-mutation-raw-output.txt"
     capture_logicbox_output "$OUT/.shen-mutation-raw-output.txt" "$OUT/mutation-output.txt"
     cat "$OUT/mutation-output.txt"
+    ;;
+  rewrite-preflight)
+    ensure_dirs
+    node "$ROOT/scripts/rewrite-safety.js" validate-patch \
+      --draft "$WORK/draft.txt" \
+      --patch "$REWRITE_PATCH"
+    ;;
+  rewrite)
+    ensure_dirs
+    node "$ROOT/scripts/rewrite-safety.js" run \
+      --draft "$WORK/draft.txt" \
+      --patch "$REWRITE_PATCH" \
+      --rewrite "$REWRITE" \
+      --report "$REWRITE_REPORT"
+    ;;
+  rewrite-mutation)
+    ensure_dirs
+    node "$ROOT/scripts/rewrite-safety.js" mutation \
+      --draft "$WORK/draft.txt" \
+      --rewrite "$REWRITE" \
+      --patch "$REWRITE_PATCH" \
+      > "$REWRITE_REPORT"
+    cat "$REWRITE_REPORT"
+    ;;
+  rewrite-test)
+    ensure_dirs
+    node "$ROOT/scripts/rewrite-safety.js" test
     ;;
   test)
     ensure_dirs
@@ -142,6 +188,8 @@ case "${1:-help}" in
     "$0" edge
     echo "fuzz:"
     "$0" fuzz
+    echo "rewrite-test:"
+    "$0" rewrite-test
     ;;
   stress)
     ensure_dirs
@@ -418,7 +466,7 @@ EOF
     [plan-goal p1 clarify-argument]
     [plan-fact p1 f-example-term]
     [plan-fact p1 f-example-result]
-    [plan-check p1 undefined-term]
+    [plan-check p1 definition-needed]
     [comment p1 "AI should replace this starter plan with extracted facts."]
 
     [term example-term unknown]
@@ -447,6 +495,9 @@ EOF
     echo
     echo "Last mutation output:"
     [[ -f "$OUT/mutation-output.txt" ]] && sed -n '1,220p' "$OUT/mutation-output.txt" || true
+    echo
+    echo "Last rewrite report:"
+    [[ -f "$REWRITE_REPORT" ]] && sed -n '1,220p' "$REWRITE_REPORT" || true
     ;;
   help|--help|-h)
     usage

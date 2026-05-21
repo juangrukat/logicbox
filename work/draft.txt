@@ -1,56 +1,9 @@
-This thesis presents innovative optimization and learning methodologies
-aimed at advancing vision-based quality inspection systems.
-Specifically, the work is motivated by the need to passively inspect
-Body-In-White (BIW) gaps and flush dimensions of vehicles from a
-distance during manufacturing. We need low-cost inspection methods to
-learn from relatively lesser amounts of ground truth dimensional data
-and operate on vehicles moving and rotating in multiple directions. To
-operate in this challenging environment, we need to match the measure
-areas on the vehicles by solving an unsupervised learning problem.
-Central to this research is the development of learning and
-optimization framework that enhances the accuracy and efficiency of
-visual inspections, even under dynamic conditions and with limited
-training data. This dissertation starts by proposing a general
-framework, Exploratory Image Data Analysis (EIDA), to teach quality
-engineers and practitioners how to work with image data. As an
-extension of Exploratory Data Analysis (EDA) in quality improvement
-problems, EIDA implements image as the input data and the goal is to
-extract useful information from the image inputs for exploration of
-potential problems and causal effects and further serves as a guiding
-tool for optimization and learning. This part of the dissertation
-presents a practical framework for EIDA in the quality improvement
-projects with four major steps of EIDA: image pre-processing,
-image-derived data processing and display, salient feature
-identification, and salient feature interpretation. For this purpose,
-various case studies are presented alongside the major steps and tried
-to discuss these steps with various visualization techniques. Because
-of the challenges including relatively tiny amounts of supervised
-dimensional data, little (if any) target detection image data, moving
-targets, and the need for prediction errors below 0.5 mm, we find
-little (if any) directly pertinent image-based research. Our key idea
-is to combine Optimal Transport (OT) theory to address our dynamic
-rotating and shifting subjects with Markov Decision Process (MDP)
-agents, to leverage the patterns of movement in the assembly line, and
-with polynomial regression to predict dimensions in the context of
-lesser amounts of supervised data. Our approach of OT-based image
-matching with Procrustes Analysis emphasizes the precise alignment of
-edge points within images, enabling accurate similarity assessments
-between different image structures and facilitating the learning of
-geometric transformations between image pairs. This research
-significantly enhances defect detection accuracy and improves the
-reliability of dimensional measurements, which are critical for
-high-accuracy inspections. By using an MDP formulation, we enable
-Reinforcement Learning (RL) techniques, permitting the inspection
-system to autonomously learn optimal tracking strategies through
-interaction with dynamic environments. Additionally, by integrating
-optimal transport with the RL agent, target detection and tracking
-become effective even with limited training data, eliminating the need
-for extensive labeling of images required in many supervised learning
-formulations. In addition, it achieves an average detection accuracy
-above 93% while increasing frames per second by over 100 times compared
-with a relevant grid search method. A key contribution of this work is
-our combined method framework EIDA, OT-based image matching, RL-driven
-tracking, and regression-based modeling to achieve high levels of
-accuracy for low-cost camera systems. The integrated framework not only
-streamlines the inspection workflow but also offers scalability and
-adaptability across diverse manufacturing contexts.
+The school district should ban student smartphone use during the school day, but only if students still have a reliable way to contact family in emergencies. Phones distract students, make cheating easier, and increase social pressure during lunch and passing periods. If phones are away, students will pay more attention, interact face-to-face, and feel less pressure to respond instantly to messages.
+
+The policy should not prevent students from using phones for medical needs, disability accommodations, language translation, or urgent family situations. Teachers should not have to police every pocket or backpack. The district can solve this by requiring phones to be stored in locked classroom pouches or office lockers.
+
+Some parents argue that a phone ban would make students less safe during emergencies. That concern matters. But during a real emergency, mass texting can spread rumors, overload networks, and distract students from adult instructions. Schools already have emergency communication systems, so students do not each need a phone in hand all day.
+
+The policy should not punish low-income students whose families rely on phones because they cannot afford laptops, private tutoring, or after-school supervision. If the phone ban makes it harder for those students to complete schoolwork or coordinate rides and caregiving duties, the district should provide alternatives.
+
+Other districts have adopted phone-free school policies, so this district can do it too. Most teachers support reducing phone distractions. Therefore, a school-day phone ban is a fair, practical, and necessary policy.

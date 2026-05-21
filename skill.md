@@ -38,13 +38,46 @@ When asked to work on a draft:
 4. Include a lightweight reasoning plan with `plan`, `plan-source`, `plan-goal`, `plan-fact`, `plan-context`, `plan-check`, and optional `comment` facts.
 5. Split the argument into `ground-claim`, `conclusion`, and `infers-to` facts when possible.
 6. Add context obligations with `context-required` and `context-known`.
-7. Add mechanism stages for broad causal claims.
-8. Add `fact-scope` facts for plan facts.
-9. Run `./logicbox check`.
-10. Explain only Shen-derived output.
-11. Ask the human for clarification before rewriting if core meaning is still uncertain.
+7. Add mechanism stages or typed mechanism paths for broad causal claims.
+8. Add explicit scope using `fact-scope`, `scope`, or typed fields such as `location`, `population`, `timeframe`, and `scope-status`.
+9. Run `./logicbox preflight` to inspect extraction-contract markers.
+10. Run `./logicbox check`.
+11. Repair translation errors and rerun until no repairable translation errors remain.
+12. Explain only the remaining Shen-derived output.
+13. Ask the human for clarification before rewriting if core meaning is still uncertain.
 
-When asked to check a rewrite:
+## Compile-Check-Repair Loop
+
+Use Shen like a compiler during translation, not only as a final report generator.
+
+1. Draft candidate facts.
+2. Run `./logicbox preflight`.
+3. Repair compact atoms before the full check when possible.
+4. Run `./logicbox check`.
+5. Treat `extraction-contract-violation`, `decomposition-needed`, malformed fact shape, and definitions already stated in the prose as repairable translation errors.
+6. Repair those facts directly, then rerun `./logicbox check`.
+7. Leave genuine argument problems in place: `value-criteria-needed`, `missing-context`, `mitigation-needs-sufficiency-check`, `claim-without-ground`, `analogy-needs-comparability`, `unclear-scope`, and evidence gaps.
+8. Stop repairing when remaining flags are real argument diagnostics or require human clarification.
+
+Do not use internet research in the default structure-only loop. External research is a separate mode: evidence suggestion may name useful evidence types, and evidence augmentation may add cited external evidence only when the human requests it. External additions should be marked with facts such as `[evidence-source E external]` and `[evidence-status E suggested]`.
+
+When asked to create a structure-only rewrite:
+
+1. Diagnose the draft first.
+2. Write a machine-checkable patch in `work/rewrite-patch.json`.
+3. Use `structure_only` unless the human explicitly asks for user-fact or evidence mode.
+4. Use only allowed structure operations: `keep`, `split`, `move`, `rephrase`, `surface-implicit-criterion`, `insert-placeholder`, `label`, and `mark-unresolved`.
+5. Represent missing definitions, thresholds, timelines, evidence, procedures, funding, and value criteria as gap objects.
+6. Add bracketed placeholders in prose instead of inventing missing facts.
+7. Label every changed sentence internally with provenance: `PRESERVED`, `CLARIFIED`, `REORDERED`, `BRACKETED_GAP`, or `SURFACED_CRITERIA`.
+8. Run `./logicbox rewrite-preflight`.
+9. Run `./logicbox rewrite`.
+10. Run `./logicbox rewrite-mutation`.
+11. Present the structure-only rewrite, gap list, and mutation report.
+
+In `structure_only`, never add new statistics, dates, deadlines, thresholds, percentages, named programs, proper nouns, empirical claims, causal mechanisms, implementation procedures, groups, stronger modality, or uniqueness claims. Replace those needs with placeholders such as `[G1: define size threshold]`.
+
+When asked to check a symbolic rewrite:
 
 1. Put the rewrite in `work/rewrite.md` or read the existing rewrite.
 2. Write rewrite-derived facts in `work/rewrite-facts.shen`.
@@ -96,7 +129,7 @@ Bad:
 
 ```shen
 [flag c1 missing-mechanism]
-[undefined-term overreliance]
+[definition-needed overreliance]
 [missing-mechanism c1]
 ```
 
@@ -112,7 +145,7 @@ Shen must derive:
 
 ```shen
 [missing-mechanism c1]
-[undefined-term overreliance]
+[definition-needed overreliance]
 ```
 
 from the submitted facts and rules.
@@ -195,12 +228,57 @@ The AI may send facts such as:
 [stronger-effect EffectA EffectB]
 ```
 
+For semantically rich prose, prefer a typed argument graph. Do not create a single atom that hides several commitments from Shen.
+
+Bad:
+
+```shen
+[term downtown-car-ban known]
+[term better-outcomes unknown]
+[term does-not-hurt-small-businesses known]
+```
+
+Better:
+
+```shen
+[term c1 claim]
+[agent c1 city-government]
+[action c1 ban]
+[target c1 private-car-use]
+[location c1 downtown]
+[timeframe c1 five-years]
+[modality c1 deontic-recommendation]
+
+[term r1 reason]
+[reason-type r1 environmental-impact]
+[outcome r1 reduced-air-pollution]
+[supports r1 c1]
+
+[term o1 objection]
+[impact-type o1 economic-impact]
+[affected-group o1 small-businesses]
+[risks o1 reduced-business-revenue]
+[objects-to o1 c1]
+```
+
+Use these primitive predicates for policy-style arguments when they fit: `term`, `agent`, `action`, `target`, `location`, `timeframe`, `modality`, `reason-type`, `impact-type`, `outcome`, `affected-group`, `resource`, `policy-tool`, `content`, `supports`, `objects-to`, `rebuts`, `concedes`, `depends-on`, `causes`, `risks`, `mitigates`, `exempts`, `applies-to`, `analogizes-from`, `analogizes-to`, `scope-status`, `boundary-status`, `comparability`, and `sufficiency`.
+
+Preferred modalities for typed extraction are `deontic-recommendation`, `deontic-requirement`, `predictive`, `possibility`, `feasibility`, `value-judgment`, and `unknown-modality`.
+
+If a term cannot be mapped to primitives, emit `[term Symbol unknown]` and `[definition Symbol "exact phrase or uncertainty"]` rather than inventing a compound domain atom.
+
+The command-line `check` and `mutation` paths enforce this with `scripts/preflight-facts.js`. When it detects a compressed standalone atom in a `term`, legacy `claim` source/target, `mechanism`, `outcome`, or similar compact position, it appends marker facts before Shen runs. Shen then derives `[extraction-contract-violation Symbol]`, `[decomposition-needed Symbol]`, or `[value-criteria-needed Symbol Value]`. These flags mean the extractor violated or underspecified the symbol contract; `[definition-needed Symbol]` means the writer's concept may genuinely need an operational definition.
+
 ## Disallowed AI Facts
 
 The AI must not generate these as input to Shen:
 
 ```shen
-[undefined-term Symbol]
+[extraction-contract-violation Symbol]
+[definition-needed Symbol]
+[decomposition-needed Symbol]
+[value-criteria-needed Symbol Value]
+[mechanism-needs-causal-path Mechanism]
 [missing-mechanism Claim]
 [mechanism-restates-source Claim Source Mechanism]
 [mechanism-restates-target Claim Target Mechanism]
@@ -332,6 +410,18 @@ Use simple scope annotations for plan facts:
 
 Supported first-pass scopes are `local`, `section`, `document`, and `global`.
 
+Typed claim nodes may also carry scope fields directly:
+
+```shen
+[term c1 claim]
+[location c1 admissions-office]
+[population c1 undergraduate-applications]
+[timeframe c1 next-cycle]
+[scope-status c1 conditional]
+```
+
+These fields count as scoped structure. Use `scope-status` values such as `unknown`, `underspecified`, or `unbounded` only when Shen should derive `unclear-scope`.
+
 ## Current File Layout
 
 ```text
@@ -356,13 +446,21 @@ shen/run.shen
 output/shen-output.txt
 output/ai-feedback.md
 work/rewrite.md
+work/rewrite-patch.json
 work/rewrite-facts.shen
+output/rewrite-report.md
 output/mutation-output.txt
 ```
 
 ## Command Use
 
 Use these local commands:
+
+```sh
+./logicbox preflight
+```
+
+Runs only the extraction preflight and prints marker facts that Shen will use to classify compact atoms, decomposition candidates, and value-criteria candidates.
 
 ```sh
 ./logicbox check
@@ -375,6 +473,30 @@ Runs the current draft facts and writes Shen-derived output to `output/shen-outp
 ```
 
 Compares current facts with rewrite facts and writes mutation output to `output/mutation-output.txt`.
+
+```sh
+./logicbox rewrite-preflight
+```
+
+Checks `work/rewrite-patch.json` before prose is rewritten.
+
+```sh
+./logicbox rewrite
+```
+
+Applies the checked patch, writes `work/rewrite.md`, and writes `output/rewrite-report.md`.
+
+```sh
+./logicbox rewrite-mutation
+```
+
+Runs the textual/provenance mutation checker against the current draft and rewrite.
+
+```sh
+./logicbox rewrite-test
+```
+
+Runs the smart-cooling rewrite safety regression.
 
 ```sh
 ./logicbox stress
@@ -405,16 +527,18 @@ Generates temporary fact models and checks kernel invariants.
 ```
 
 Runs ordinary checks, stress checks, gold checks, and fuzz checks.
-The test command also includes the edge suite.
+The test command also includes the edge suite and rewrite safety regression.
 
 ## User-Facing Explanation
 
 When explaining results to the human:
 
 - Say what Shen derived.
+- Say what exact draft phrase, structural move, or AI interpretation triggered each concern.
+- Separate the trigger from the explanation: first show the evidence, then say what the AI thinks may be wrong, then say why it matters for the argument.
 - Say what the flag means for writing clarity.
 - Say whether the likely next move is definition, context, mechanism, scope, support, or rewrite repair.
-- Ask at most one or two clarification questions.
+- Ask at most one or two clarification questions that help the writer and AI understand each other about the flagged point. Prefer questions that help the writer sharpen the argument over questions that merely ask for style preferences.
 - Add a counterexample pressure test only when it helps explain a weakness.
 - Do not describe `[clear-enough P]` as truth, proof, validity, or correctness.
 
@@ -450,20 +574,24 @@ Do not produce flags.
 
 Shen should derive these first:
 
-1. undefined-term
-2. missing-mechanism
-3. mechanism-restates-source
-4. mechanism-restates-target
-5. mechanism-too-abstract
-6. unclear-modality
-7. unclear-scope
-8. conclusion-stronger-than-premises
-9. missing-context
-10. claim-without-ground
-11. stage-chain-too-short
-12. plan-incomplete or clear-enough
-13. modality-mutation
-14. scope-mutation
+1. extraction-contract-violation
+2. definition-needed
+3. decomposition-needed
+4. value-criteria-needed
+5. missing-mechanism
+6. mechanism-needs-causal-path
+7. mechanism-restates-source
+8. mechanism-restates-target
+9. mechanism-too-abstract
+10. unclear-modality
+11. unclear-scope
+12. conclusion-stronger-than-premises
+13. missing-context
+14. claim-without-ground
+15. stage-chain-too-short
+16. plan-incomplete or clear-enough
+17. modality-mutation
+18. scope-mutation
 
 The current local rules also include source and target mutation checks because they are useful for rewrite drift.
 
@@ -499,14 +627,28 @@ Use this format:
 
 1. What I think you mean
 2. What Shen derived
-3. Why it matters
-4. Counterexample pressure test, when Shen derived a structural weakness
-5. One or two clarification questions
-6. Optional cleaner rewrite only if enough meaning is confirmed
+3. What triggered this: quote the smallest useful draft fragment or name the exact structural move, state how the AI read it, and state the specific concern
+4. Why it matters for making the argument stronger
+5. Counterexample pressure test, when a structural weakness benefits from one
+6. One or two clarification questions that help the writer decide what the argument should actually commit to
+7. Optional cleaner rewrite or structured suggestion only if enough meaning is confirmed
 
 Do not overwhelm the human.
 
 Counterexample pressure tests are AI explanations, not Shen output. They are useful after flags like `missing-context`, `missing-mechanism`, `claim-without-ground`, `stage-chain-too-short`, or `conclusion-stronger-than-premises`.
+
+## Rewrite Guidance
+
+The rewrite is a nudge, not a replacement for the writer's judgment.
+
+When proposing a rewrite:
+
+- Preserve the writer's actual claim before improving the wording.
+- Keep the original source, target, modality, scope, and causal direction unless the writer has clarified a change.
+- Do not add new evidence, stronger conclusions, broader scope, or a cleaner thesis that the draft did not already support.
+- If the draft is a note, outline, fragment, or non-prose argument, the rewrite may be a structured suggestion rather than a polished paragraph.
+- When meaning is uncertain, keep the rewrite conservative and let the clarifying questions carry the uncertainty.
+- If the rewrite changes an important commitment, name that change in the logic diff rather than hiding it.
 
 ## Human Clarification Handling
 
