@@ -24,6 +24,7 @@ Usage:
   ./logicbox rewrite-preflight
   ./logicbox rewrite
   ./logicbox rewrite-mutation
+  ./logicbox recheck-report
   ./logicbox rewrite-test
   ./logicbox test
   ./logicbox stress
@@ -75,6 +76,12 @@ run_check_model() {
 
 use_legacy_js_preflight() {
   [[ "${2:-}" == "--legacy-js-preflight" ]]
+}
+
+rewrite_safety_args() {
+  if [[ " $* " == *" --legacy-js-rewrite-safety "* ]]; then
+    echo "--legacy-js-rewrite-safety"
+  fi
 }
 
 run_native_preflight() {
@@ -176,7 +183,8 @@ case "${1:-help}" in
     ensure_dirs
     node "$ROOT/scripts/rewrite-safety.js" validate-patch \
       --draft "$WORK/draft.txt" \
-      --patch "$REWRITE_PATCH"
+      --patch "$REWRITE_PATCH" \
+      $(rewrite_safety_args "$@")
     ;;
   rewrite)
     ensure_dirs
@@ -192,19 +200,22 @@ case "${1:-help}" in
         --patch "$REWRITE_PATCH" \
         --rewrite "$REWRITE" \
         --report "$REWRITE_REPORT" \
+        $(rewrite_safety_args "$@") \
         > "$OUT/.rewrite-apply-report.txt"
     else
       node "$ROOT/scripts/rewrite-safety.js" run \
         --draft "$WORK/draft.txt" \
         --patch "$REWRITE_PATCH" \
         --rewrite "$REWRITE" \
-        --report "$REWRITE_REPORT"
+        --report "$REWRITE_REPORT" \
+        $(rewrite_safety_args "$@")
     fi
     if [[ "$mode" == "rewrite_with_user_facts" ]]; then
       node "$ROOT/scripts/rewrite-safety.js" mutation \
         --draft "$WORK/draft.txt" \
         --rewrite "$REWRITE" \
         --patch "$REWRITE_PATCH" \
+        $(rewrite_safety_args "$@") \
         > "$OUT/mutation-output.txt"
       if [[ ! -x "$SHEN" ]]; then
         echo "Could not find shen-sbcl at: $SHEN" >&2
@@ -234,8 +245,19 @@ case "${1:-help}" in
       --draft "$WORK/draft.txt" \
       --rewrite "$REWRITE" \
       --patch "$REWRITE_PATCH" \
+      $(rewrite_safety_args "$@") \
       > "$REWRITE_REPORT"
     cat "$REWRITE_REPORT"
+    ;;
+  recheck-report)
+    ensure_dirs
+    node "$ROOT/scripts/rewrite-safety.js" recheck-report \
+      --patch "$REWRITE_PATCH" \
+      --rewrite "$REWRITE" \
+      --before "$SHEN_BEFORE_REWRITE" \
+      --after "$OUT/shen-output.txt" \
+      --mutation "$OUT/mutation-output.txt" \
+      --report "$REWRITE_REPORT"
     ;;
   rewrite-test)
     ensure_dirs

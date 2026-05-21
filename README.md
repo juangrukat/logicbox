@@ -184,6 +184,8 @@ Stage 1 rewrite-safety migration keeps `scripts/rewrite-safety.js` as a wrapper 
 
 Stage 2 preflight migration moves compound-atom, decomposition, and value-criteria marker classification into Shen/SBCL through `shen/run-preflight.shen`. `./logicbox preflight`, `./logicbox check`, and `./logicbox mutation` use Shen-native preflight by default; pass `--legacy-js-preflight` to temporarily compare against `scripts/preflight-facts.js`.
 
+Stage 3 rewrite-safety migration makes Shen/SBCL the default source of truth for rewrite mutation acceptance and protected-claim deletion checks through `shen/run-rewrite-safety.shen`. `scripts/rewrite-safety.js` remains as JSON/file glue, patch application, report formatting, repair plumbing, and a temporary parity harness. Pass `--legacy-js-rewrite-safety` to `./logicbox rewrite-preflight`, `./logicbox rewrite`, or `./logicbox rewrite-mutation` only when comparing against the old JavaScript checker.
+
 Structure-only rewrites must also preserve protected claims. A rewrite may mark a protected claim unresolved, but it may not replace it with `[undefined: fill missing information]` or omit it. Protected roles include main recommendations, core/scope conditions, objections, concessions, rebuttals, safeguards, mitigations, exceptions, equity guardrails, and value conclusions.
 
 Use protected-role facts in symbolic mutation checks:

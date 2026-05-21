@@ -74,6 +74,7 @@ const STOP_WORDS = new Set([
 
 const args = process.argv.slice(2);
 const command = args[0] || "help";
+const LEGACY_REWRITE_SAFETY_OPTION = "legacy-js-rewrite-safety";
 
 try {
   if (command === "validate-patch") {
@@ -121,6 +122,9 @@ Commands:
   node scripts/rewrite-safety.js run --draft work/draft.txt --patch work/rewrite-patch.json --rewrite work/rewrite.md --report output/rewrite-report.md
   node scripts/rewrite-safety.js recheck-report --patch work/rewrite-patch.json --rewrite work/rewrite.md --before output/shen-before-rewrite.txt --after output/shen-output.txt --mutation output/rewrite-report.md --report output/gap-fill-report.md
   node scripts/rewrite-safety.js test
+
+Rewrite safety acceptance is Shen/SBCL-backed by default.
+Pass --legacy-js-rewrite-safety to use the temporary legacy JavaScript checker.
 `);
 }
 
@@ -151,7 +155,7 @@ function readOptions(argv) {
 function validatePatchCommand(options) {
   const draft = readText(required(options.draft, "--draft is required"));
   const patch = readPatch(required(options.patch, "--patch is required"));
-  const validation = validatePatch(patch, draft);
+  const validation = validatePatch(patch, draft, options);
 
   return {
     accepted: validation.errors.length === 0,
@@ -167,7 +171,7 @@ function applyCommand(options) {
   const rewritePath = required(options.rewrite, "--rewrite is required");
   const draft = readText(draftPath);
   const patch = readPatch(patchPath);
-  const validation = validatePatch(patch, draft);
+  const validation = validatePatch(patch, draft, options);
 
   if (validation.errors.length) {
     return {
@@ -193,7 +197,7 @@ function mutationCommand(options) {
   const rewrite = readText(required(options.rewrite, "--rewrite is required"));
   const patch = options.patch && fs.existsSync(options.patch) ? readPatch(options.patch) : null;
   const mode = options.mode || patch?.mode || "structure_only";
-  const report = buildMutationReport(draft, rewrite, patch, mode);
+  const report = buildMutationReport(draft, rewrite, patch, mode, options);
 
   return { report };
 }
@@ -224,7 +228,7 @@ function runCommand(options) {
   const reportPath = required(options.report, "--report is required");
   const draft = readText(draftPath);
   const patch = readPatch(patchPath);
-  const validation = validatePatch(patch, draft);
+  const validation = validatePatch(patch, draft, options);
   let rewrite = "";
   let validationErrors = validation.errors.slice();
 
@@ -234,12 +238,12 @@ function runCommand(options) {
     rewrite = applyBestEffortPatch(draft, patch);
   }
 
-  let report = buildMutationReport(draft, rewrite, patch, patch.mode || "structure_only");
+  let report = buildMutationReport(draft, rewrite, patch, patch.mode || "structure_only", options);
 
   if (!report.accepted && (patch.mode || "structure_only") === "structure_only" && report.deletionChecks.missing.length) {
     const repaired = repairProtectedDeletions(draft, rewrite, report);
     rewrite = repaired.text;
-    report = buildMutationReport(draft, rewrite, patch, patch.mode || "structure_only");
+    report = buildMutationReport(draft, rewrite, patch, patch.mode || "structure_only", options);
     report.repairedDeletion = repaired.repaired;
     if (repaired.repaired && validationErrors.every(isDeletionPreflightError)) {
       validationErrors = [];
@@ -250,7 +254,7 @@ function runCommand(options) {
     const repaired = repairRewriteWithPlaceholders(rewrite, report);
     rewrite = repaired.text;
     patch.gaps = mergeGaps(patch.gaps || [], repaired.gaps);
-    report = buildMutationReport(draft, rewrite, patch, patch.mode || "structure_only");
+    report = buildMutationReport(draft, rewrite, patch, patch.mode || "structure_only", options);
     report.repaired = repaired.gaps.length > 0;
   }
 
@@ -268,7 +272,7 @@ function runCommand(options) {
   return { rewrite, report, reportText };
 }
 
-function validatePatch(patch, draft) {
+function validatePatch(patch, draft, options = {}) {
   const errors = [];
   const warnings = [];
   const mode = patch.mode || "structure_only";
@@ -343,7 +347,7 @@ function validatePatch(patch, draft) {
   }
 
   const preview = applyBestEffortPatch(draft, patch);
-  const mutation = buildMutationReport(draft, preview, patch, mode);
+  const mutation = buildMutationReport(draft, preview, patch, mode, options);
 
   if ((mode === "structure_only" || mode === "rewrite_with_user_facts") && !mutation.accepted) {
     for (const violation of mutation.violations) {
@@ -456,7 +460,15 @@ function applyBestEffortPatch(draft, patch) {
   }
 }
 
-function buildMutationReport(draft, rewrite, patch, mode) {
+function buildMutationReport(draft, rewrite, patch, mode, options = {}) {
+  if (useLegacyRewriteSafety(options)) {
+    return buildLegacyMutationReport(draft, rewrite, patch, mode);
+  }
+
+  return buildShenBackedMutationReport(draft, rewrite, patch, mode);
+}
+
+function buildLegacyMutationReport(draft, rewrite, patch, mode) {
   const original = analyzeText(draft);
   const candidate = analyzeText(rewrite);
   const nonPlaceholderRewrite = substitutePlaceholdersWithGapSubjects(rewrite, patch);
@@ -526,6 +538,77 @@ function buildMutationReport(draft, rewrite, patch, mode) {
       objectionsRemoved: yesNo(hasKind(violations, "objection-removed")),
     },
   };
+}
+
+function useLegacyRewriteSafety(options = {}) {
+  return Boolean(options[LEGACY_REWRITE_SAFETY_OPTION]);
+}
+
+function buildShenBackedMutationReport(draft, rewrite, patch, mode) {
+  const report = buildLegacyMutationReport(draft, rewrite, patch, mode);
+  const shenFlags = runShenSafetyFacts(buildShenSafetyFacts(draft, rewrite, patch, mode), os.tmpdir());
+  const accepted = shenAccepted(shenFlags);
+
+  report.accepted = accepted;
+  report.rewriteSafetyBackend = "shen";
+  report.shenFlags = shenFlags;
+  addMissingViolationsFromShen(report, shenFlags);
+
+  return report;
+}
+
+function addMissingViolationsFromShen(report, shenFlags) {
+  for (const flag of shenFlags) {
+    const parsed = parseShenSafetyFlag(flag);
+    if (!parsed) {
+      continue;
+    }
+
+    if (report.violations.some((violation) => {
+      if (parsed.syntheticId && violation.kind === parsed.kind) {
+        return true;
+      }
+      return violation.kind === parsed.kind && String(violation.snippet) === String(parsed.snippet);
+    })) {
+      continue;
+    }
+
+    report.violations.push({
+      kind: parsed.kind,
+      snippet: parsed.snippet,
+      source: "Shen/SBCL rewrite safety",
+      status: "blocked",
+    });
+  }
+}
+
+function parseShenSafetyFlag(flag) {
+  let match = /^\[mutation-violation\s+(\S+)\s+(\S+)\]$/.exec(flag);
+  if (match) {
+    return { kind: match[1], snippet: match[2], syntheticId: true };
+  }
+
+  match = /^\[(deleted-main-claim|deleted-condition|deleted-objection|deleted-concession|deleted-rebuttal|deleted-safeguard|deleted-mitigation|deleted-value-conclusion)\s+(\S+)\]$/.exec(flag);
+  if (match) {
+    return { kind: match[1], snippet: match[2] };
+  }
+
+  match = /^\[deleted-protected-claim\s+(\S+)\s+(\S+)\]$/.exec(flag);
+  if (match) {
+    return { kind: "deleted-protected-claim", snippet: `${match[1]} ${match[2]}` };
+  }
+
+  match = /^\[patch-violation\s+protected-deletion\s+(\S+)\]$/.exec(flag);
+  if (match) {
+    return { kind: "protected-patch-deletion", snippet: match[1] };
+  }
+
+  match = /^\[patch-violation\s+protected-placeholder\s+(\S+)\]$/.exec(flag);
+  if (match) {
+    return { kind: "protected-placeholder", snippet: match[1] };
+  }
+
+  return null;
 }
 
 function analyzeText(text) {
@@ -1583,7 +1666,7 @@ function shenAccepted(flags) {
 }
 
 function assertParity(label, draft, rewrite, patch, mode, expectedKinds, tempDir) {
-  const js = buildMutationReport(draft, rewrite, patch, mode);
+  const js = buildLegacyMutationReport(draft, rewrite, patch, mode);
   const shenFlags = runShenSafetyFacts(buildShenSafetyFacts(draft, rewrite, patch, mode), tempDir);
   const shenOk = shenAccepted(shenFlags);
 
