@@ -77,11 +77,12 @@ When asked to create a structure-only rewrite:
 
 In `structure_only`, never add new statistics, dates, deadlines, thresholds, percentages, named programs, proper nouns, empirical claims, causal mechanisms, implementation procedures, groups, stronger modality, or uniqueness claims. Replace those needs with placeholders such as `[G1: define size threshold]`.
 
-During the Stage 1 migration, keep JS as a wrapper only. Shen/SBCL should derive rewrite-safety acceptance through `run-rewrite-safety.shen`, and parity tests must compare legacy JS and Shen/SBCL output before default behavior is switched.
+All three migration stages are complete. Shen/SBCL is the default source of truth for preflight classification, check, mutation, and rewrite safety. Legacy JS paths remain behind feature flags for parity comparison only:
 
-During the Stage 2 migration, use Shen-native preflight by default through `run-preflight.shen`. Keep `scripts/preflight-facts.js` only as a temporary parity harness behind `--legacy-js-preflight` until a later removal pass.
+- `--legacy-js-preflight` — temporary comparison against `scripts/preflight-facts.js`.
+- `--legacy-js-rewrite-safety` — temporary comparison against the old JavaScript checker.
 
-During the Stage 3 migration, use Shen-backed rewrite safety by default through `run-rewrite-safety.shen`. Keep `scripts/rewrite-safety.js` only as JSON/file glue, patch application, report formatting, repair plumbing, and parity harness code. Use `--legacy-js-rewrite-safety` only for temporary comparison against the old JavaScript checker.
+`scripts/rewrite-safety.js` remains as JSON/file glue, patch application, report formatting, and repair plumbing.
 
 Protected claims must stay present. A structure-only rewrite may preserve, meaning-preservingly rephrase, add bracketed gaps inside, or mark a protected sentence unresolved while keeping the original sentence. It must not delete or replace these roles with a standalone placeholder:
 

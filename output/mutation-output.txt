@@ -1,2 +1,1 @@
-[value-criteria-needed fair fairness]
-[value-criteria-needed practical practicality]
+[]

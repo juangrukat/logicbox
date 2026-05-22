@@ -1,108 +1,289 @@
 # LogicBox
 
-LogicBox is a tiny plain-text to Shen reasoning loop.
+LogicBox helps people turn messy prose into clearer arguments without pretending to decide whether the argument is factually true.
 
-The human writes prose. The AI proposes symbolic facts. Shen derives structural flags. The AI explains those flags and asks for clarification.
+It is a small file-based reasoning loop:
 
-It is for improving the structure of an argument, not proving that the argument is true.
+1. A human writes a draft in plain language.
+2. An AI translates the draft into symbolic facts.
+3. Shen derives structural flags from those facts.
+4. The AI explains only those derived flags and asks for clarification.
+5. The human decides what they meant.
+
+Use LogicBox when you want an AI assistant to help clarify an argument, proposal, policy, essay, memo, or rewrite while keeping uncertainty visible instead of smoothing it away.
+
+## What Can I Do With This?
+
+LogicBox answers practical questions like:
+
+- Did this paragraph make a claim without enough support?
+- Did my rewrite accidentally make the claim stronger than the original?
+- Did an AI fill in a missing fact that the human never supplied?
+- Are the scope, mechanism, criteria, or assumptions unclear?
+- Did the final rewrite preserve the important claim, objection, safeguard, or condition?
+- Are there still gaps the user needs to answer before a clean rewrite is safe?
+
+It is especially useful when an argument feels plausible but slippery. LogicBox gives the AI a disciplined way to say, “This part needs a definition,” “This causal step is missing,” or “This rewrite changed the meaning,” instead of jumping straight to polished prose.
+
+## Example Uses
+
+### Example 1: Improve a policy argument
+
+Draft:
+
+```text
+The city should require large apartment buildings to install smart cooling systems because this will protect vulnerable residents during heat waves.
+```
+
+LogicBox can help surface questions such as:
+
+- What counts as a “large” apartment building?
+- Which residents are considered vulnerable?
+- What mechanism connects smart cooling systems to protection?
+- Is the claim about all heat waves, extreme heat events, or a specific city program?
+- Does the argument need evidence, a narrower claim, or a safeguard?
+
+A safe rewrite might keep unresolved facts visible:
+
+```text
+The city should require large apartment buildings — [G1: define which buildings count as "large"] — to install smart cooling systems, because these systems may help protect vulnerable residents — [G2: define the protected resident group] — during heat waves.
+```
+
+The point is not to make the paragraph sound better at any cost. The point is to make it clearer without inventing missing information.
+
+### Example 2: Keep an AI rewrite from drifting
+
+Original:
+
+```text
+Students may benefit from AI tutoring when the tutor gives feedback that the student can evaluate and apply.
+```
+
+Unsafe rewrite:
+
+```text
+AI tutoring will improve student outcomes for everyone.
+```
+
+LogicBox can flag that the rewrite strengthened the modality, broadened the scope, and removed the condition that students must be able to evaluate and apply the feedback.
+
+### Example 3: Clarify a causal explanation
+
+Draft:
+
+```text
+People who adjust based on results do better because adjusting based on results lets them repeat what works.
+```
+
+LogicBox can flag that the explanation may be circular or too close to the original claim. A better next step is not necessarily a rewrite; it may be a question:
+
+```text
+What changes after observing results: strategy, attention, effort allocation, or the person's model of the task?
+```
+
+## Who Is This For?
+
+LogicBox is for people who work with claims that need careful structure:
+
+- writers revising essays, memos, policy arguments, or grant proposals
+- researchers or students checking whether a claim has enough support
+- product and policy teams trying to preserve constraints during rewrites
+- AI-tool builders who want a small reasoning kernel around LLM-generated prose
+- anyone who wants AI feedback to separate “this is unclear” from “this is false”
+
+It is also for developers experimenting with a hybrid AI + symbolic-checking workflow. The project keeps the AI responsible for interpretation and explanation, while Shen is responsible for deriving structural warnings from explicit facts.
+
+## What LogicBox Is Not
+
+LogicBox does not prove that a claim is true.
+
+By default, it does not browse the internet, verify evidence, or decide whether a policy is good. It checks the structure of the argument represented in the facts it was given.
+
+If Shen flags something because the AI encoded the human’s meaning incorrectly, the right fix is to repair the facts, not to rewrite the prose around the mistake.
+
+Core boundary:
+
+```text
+LogicBox can reduce confusion.
+LogicBox should not reduce factual uncertainty.
+```
+
+## How It Works
+
+The normal loop is intentionally small:
+
+```text
+plain-text draft
+-> AI-extracted Shen facts
+-> Shen-derived structural flags
+-> AI explanation and clarification questions
+-> human correction or approval
+-> optional safe rewrite
+-> mutation and consistency checks
+```
+
+The architecture is file-based. The shell script orchestrates commands, Shen derives logical flags, and JavaScript still handles JSON/text glue for rewrite patching and reporting.
+
+Important files:
+
+```text
+work/draft.txt              user draft
+work/ai-facts.shen          AI-extracted source facts
+work/adapter-facts.shen     temporary semantic bridge facts
+work/rewrite-patch.json     machine-checkable rewrite patch
+work/rewrite.md             applied rewrite
+work/rewrite-facts.shen     rewrite-derived symbolic facts
+output/shen-output.txt      raw Shen flags
+output/check-report.md      sectioned human-facing check report
+output/rewrite-report.md    safe rewrite report
+output/mutation-output.txt  rewrite mutation output
+output/ai-feedback.md       AI explanation of Shen-derived flags
+```
 
 ## Quick Start
+
+Put a draft in `work/draft.txt`, extract candidate facts into `work/ai-facts.shen`, then run:
 
 ```sh
 ./logicbox check
 ```
 
-The current draft is in `work/draft.txt`.
+Read the sectioned report first:
 
-The AI-facing facts are in `work/ai-facts.shen`.
-
-Temporary bridge facts are in `work/adapter-facts.shen`.
-
-The derived Shen output is saved to `output/shen-output.txt`.
-
-The sectioned check report is saved to `output/check-report.md`.
-
-Run the rewrite mutation check with:
-
-```sh
-./logicbox mutation
+```text
+output/check-report.md
 ```
 
-Rewrite-derived facts live in `work/rewrite-facts.shen`, and mutation output is saved to `output/mutation-output.txt`.
+Read the raw Shen output when you need machine-oriented detail:
 
-Run the built-in rule fixtures with:
-
-```sh
-./logicbox test
+```text
+output/shen-output.txt
 ```
 
-`test` runs the ordinary fixtures, adversarial stress fixtures, exact gold models, and deterministic fuzz invariants.
-
-Run only the adversarial fixtures with:
-
-```sh
-./logicbox stress
-```
-
-Run exact positive/negative gold models with:
-
-```sh
-./logicbox gold
-```
-
-Run the named edge-case suites with:
-
-```sh
-./logicbox edge
-```
-
-Run generated invariant checks with:
-
-```sh
-./logicbox fuzz
-```
-
-Run only the extraction preflight with:
-
-```sh
-./logicbox preflight
-```
-
-## How To Use It
-
-The normal workflow is small and file-based:
-
-1. Write or paste a paragraph into `work/draft.txt`.
-2. Ask the AI to extract candidate facts into `work/ai-facts.shen`.
-3. Put temporary bridge facts in `work/adapter-facts.shen` only when the current check needs them.
-4. Run `./logicbox check`.
-5. Read `output/shen-output.txt` for machine-oriented flags and `output/check-report.md` for source/user/adapter separation.
-6. Ask the AI to explain only those Shen-derived flags in `output/ai-feedback.md`.
-7. Clarify the paragraph or the intended meaning.
-8. Update `work/ai-facts.shen` and `work/adapter-facts.shen`, then run `./logicbox check` again.
-
-For a safe prose rewrite:
-
-1. Put a machine-checkable rewrite patch in `work/rewrite-patch.json`.
-2. Run `./logicbox rewrite-preflight`.
-3. Run `./logicbox rewrite`.
-4. Read `work/rewrite.md` and `output/rewrite-report.md`.
-5. Keep unresolved facts visible as bracketed gaps instead of filling them.
-
-For a symbolic meaning-drift check, put rewrite-derived facts in `work/rewrite-facts.shen` and run `./logicbox mutation`.
-
-The human remains the authority on meaning. If Shen flags something because the AI encoded your meaning incorrectly, fix the facts rather than rewriting the prose.
-
-## Start A New Claim
+Start a new claim from the command line:
 
 ```sh
 ./logicbox new "Online learning is just as effective as in-person learning."
 ```
 
-Then the AI edits `work/ai-facts.shen` with candidate facts and runs:
+Then have the AI edit `work/ai-facts.shen` and run:
 
 ```sh
 ./logicbox check
+```
+
+## Command Overview
+
+### Check the current argument
+
+```sh
+./logicbox check
+```
+
+Uses `work/draft.txt`, `work/ai-facts.shen`, and `work/adapter-facts.shen` to derive structural flags.
+
+Outputs:
+
+```text
+output/shen-output.txt
+output/check-report.md
+```
+
+### Run only extraction preflight
+
+```sh
+./logicbox preflight
+```
+
+Use this when you want to inspect marker facts before a full check. Preflight helps catch opaque symbols, decomposition problems, and value terms that may need criteria.
+
+### Check symbolic rewrite mutation
+
+```sh
+./logicbox mutation
+```
+
+Uses rewrite-derived facts in `work/rewrite-facts.shen` and saves output to:
+
+```text
+output/mutation-output.txt
+```
+
+### Run the safe rewrite path
+
+```sh
+./logicbox rewrite-preflight
+./logicbox rewrite
+./logicbox rewrite-mutation
+```
+
+Uses `work/rewrite-patch.json` to validate and apply a rewrite without silently inventing missing facts.
+
+### Run tests
+
+```sh
+./logicbox test
+```
+
+Runs ordinary fixtures, adversarial stress fixtures, exact gold models, edge suites, and generated fuzz invariants.
+
+Run subsets:
+
+```sh
+./logicbox stress
+./logicbox gold
+./logicbox edge
+./logicbox fuzz
+```
+
+## Normal User Workflow
+
+1. Write or paste a paragraph into `work/draft.txt`.
+2. Ask the AI to extract candidate facts into `work/ai-facts.shen`.
+3. Put temporary bridge facts in `work/adapter-facts.shen` only when the current check needs them.
+4. Run `./logicbox check`.
+5. Read `output/check-report.md` before reading the raw Shen output.
+6. Ask the AI to explain only the flags Shen actually derived.
+7. Clarify the paragraph or the intended meaning.
+8. Update `work/ai-facts.shen` and `work/adapter-facts.shen`.
+9. Run `./logicbox check` again.
+
+The human remains the authority on meaning.
+
+## What To Ask The AI
+
+Useful prompts while working locally:
+
+```text
+Read work/draft.txt, extract a reasoning plan into work/ai-facts.shen, then run ./logicbox check and explain only Shen's output.
+```
+
+```text
+Use Shen's flags to ask me one or two clarification questions. Do not rewrite yet.
+```
+
+```text
+Update work/ai-facts.shen using my clarification and rerun the check.
+```
+
+```text
+Propose a rewrite patch that preserves meaning, marks unresolved gaps, and does not add external facts.
+```
+
+```text
+Run ./logicbox rewrite-preflight, ./logicbox rewrite, and ./logicbox rewrite-mutation. Tell me whether Shen found meaning drift.
+```
+
+```text
+Run ./logicbox stress and summarize which adversarial cases the kernel catches.
+```
+
+```text
+Run ./logicbox gold and ./logicbox fuzz, then summarize whether the reusable regression checks passed.
+```
+
+```text
+Run ./logicbox edge and summarize which edge-case families passed.
 ```
 
 ## AI Workflow
@@ -123,23 +304,23 @@ For each draft, the AI should:
 
 The AI supplies semantic relationships. Shen derives the warnings.
 
-## Temporary Adapter Facts
+## Compile, Check, Repair
 
-Use `work/adapter-facts.shen` for per-run semantic bridge facts that help Shen connect the user's wording to general structural rules. Typical adapter facts are generic relationships such as:
+Use LogicBox like a tiny compiler while translating prose:
 
-```shen
-[adapter-fact a1]
-[adapter-source a1 ai-semantic-bridge]
-[adapter-scope a1 current-run]
-[adapter-status a1 temporary]
-[implies nightlystudylogs privatestudymonitoring]
-```
+1. Draft candidate facts in `work/ai-facts.shen`.
+2. Run `./logicbox preflight`.
+3. Repair compact atoms and obvious decomposition errors.
+4. Run `./logicbox check`.
+5. Repair translation errors such as `extraction-contract-violation`, `decomposition-needed`, malformed fact shape, and missing definitions already supplied by the prose.
+6. Leave real argument diagnostics in place, including `value-criteria-needed`, `missing-context`, `mitigation-needs-sufficiency-check`, `mitigation-needs-equivalence-check`, `claim-without-ground`, `analogy-needs-comparability`, `unclear-scope`, reconciliation tensions, and evidence gaps.
+7. Explain only the remaining Shen-derived flags.
 
-Adapter facts are loaded into the current Shen check, reported separately in `output/check-report.md`, and should stay out of `shen/rules.shen` unless they are deliberately promoted after neutral wording and regression coverage.
+Default mode is structure-only: no internet and no factual truth checking. Evidence suggestion and evidence augmentation can be added later as explicit modes, with external additions marked separately from the original argument.
 
-## Report Discipline
+## Reading The Output
 
-`output/shen-output.txt` stays raw: Shen flags and plan statuses only. `output/check-report.md` is the user-facing split:
+Read `output/check-report.md` first. It separates:
 
 ```text
 Kernel result:
@@ -159,35 +340,78 @@ Plan status:
 - the current next-state label
 ```
 
-Do not treat positive status flags as blocking problems. `value-criteria-grounded` is a positive status. A plan can have no blocking issues, no remaining reconciliation tensions, and still be `needs-user-input` because some evidence or optional clarification remains.
+Do not treat positive status flags as blocking problems. `value-criteria-grounded` is a positive status. A plan can have no blocking issues, no remaining reconciliation tensions, and still be `needs-user-input` because evidence or optional clarification remains.
 
-Use report-only open tasks when the user should still supply something but the kernel does not need another structural rule:
+Common plan statuses:
 
-```shen
-[open-task evidence g9 "provide evidence for other universities experimenting"]
-[open-task definition limitedtime "define limited advisor time"]
-[open-task value fair "confirm fair criteria"]
+- `[plan-status p1 ready-for-final-rewrite]`: the current plan has no blocking structural flags. It does not mean the argument is true.
+- `[plan-status p1 translation-error]`: the symbolic extraction itself needs repair before the argument should be judged.
+- `[plan-status p1 needs-user-input]`: definitions, context, mechanisms, scope, or similar structural information is missing.
+- `[plan-status p1 awaiting-value-confirmation]`: only value criteria need confirmation.
+- `[plan-status p1 needs-evidence]`: a remaining issue needs outside support or a narrower claim.
+- `[plan-status p1 needs-reconciliation]`: translation and mutation provenance may be clean, but accepted facts introduce a tension with the argument's structure.
+
+`needs-reconciliation` outranks ordinary `needs-user-input`. A mutation pass does not imply an argument pass.
+
+## Common Flags
+
+- `[extraction-contract-violation X]`: the extractor packed domain meaning into an opaque atom; decompose it before judging the draft.
+- `[definition-needed X]`: a legitimate concept needs an operational definition.
+- `[decomposition-needed X]`: an action or condition should be represented as primitive predicates instead of a compact term.
+- `[value-criteria-missing X]`: a value conclusion such as fairness, safety, privacy, or responsibility needs explicit criteria.
+- `[value-criteria-stated X]`: criteria are stated in prose, but not yet linked to grounds.
+- `[value-criteria-grounded X]`: criteria are stated and linked to supporting grounds.
+- `[missing-mechanism C]`: a causal claim lacks a represented mechanism.
+- `[mechanism-needs-causal-path M]`: a mechanism is present but lacks a causal bridge.
+- `[mechanism-restates-source C Source Mechanism]`: the explanation may repeat the starting point.
+- `[mechanism-restates-target C Target Mechanism]`: the explanation may repeat the desired result.
+- `[mechanism-too-abstract C Mechanism]`: the mechanism is too abstract to explain the claim.
+- `[missing-context C X]`: a background assumption is needed.
+- `[claim-without-ground K]`: a conclusion has no represented support.
+- `[conclusion-stronger-than-premises Premise Conclusion OldModality NewModality]`: the conclusion is stronger than its premise.
+- `[conclusion-stronger-than-ground Ground Conclusion OldModality NewModality]`: the conclusion is stronger than its ground.
+- `[stage-chain-too-short C Count Minimum]`: a causal bridge needs more intermediate structure.
+- `[missing-stage-bridge C Stage1 Stage2]`: two causal stages need a represented bridge.
+- `[scope-missing F]`: a plan fact needs a local, section, document, or global scope.
+- `[scope-conflict Fact1 Fact2 Scope1 Scope2]`: two facts use conflicting scopes.
+- `[global-term-redefined-locally Term GlobalFact LocalFact]`: a local definition conflicts with a global term.
+- `[tension benefit-undermined C Benefit Condition]`: a condition or rule weakens a benefit the claim relies on.
+- `[tension uniform-rule-vs-exception Rule Exception]`: a uniform/no-exceptions policy conflicts with an exception.
+- `[tension subgroup-rule-conflicts-with-policy C Rule Group]`: a subgroup rule conflicts with the main policy target.
+- `[mitigation-needs-equivalence-check M O]`: a fallback mitigation is traceable but may not preserve equivalent benefit.
+- `[overclaim necessity-counterfactual K Ground]`: a necessity claim relies on an unsupported counterfactual ground.
+- `[deleted-main-claim C]`: the main recommendation disappeared from the rewrite.
+- `[deleted-condition C]`: a core or scope condition disappeared from the rewrite.
+- `[deleted-objection O]`: an objection disappeared from the rewrite.
+- `[deleted-rebuttal R]`: a rebuttal disappeared from the rewrite.
+- `[deleted-safeguard S]`: a safeguard, exception, or equity guardrail disappeared from the rewrite.
+- `[deleted-mitigation M]`: a mitigation disappeared from the rewrite.
+- `[deleted-value-conclusion K]`: a value conclusion disappeared from the rewrite.
+- `[modality-mutation C R Old New]`: the rewrite changed the strength of the claim.
+- `[scope-mutation C R Old New]`: the rewrite changed the scope of the claim.
+- `[source-mutation C R Old New]`: the rewrite changed the source side of the claim.
+- `[target-mutation C R Old New]`: the rewrite changed the target side of the claim.
+- `[precomputed-flag ...]`: a final Shen result was incorrectly placed in the AI fact input.
+
+When a flag appears, the next move is usually one of three things: define a term, add the missing mechanism/context, or ask whether the AI misunderstood the intended meaning.
+
+## Counterexample Feedback
+
+When Shen derives a weakness such as `missing-context`, `missing-mechanism`, `stage-chain-too-short`, `claim-without-ground`, or `conclusion-stronger-than-premises`, the AI should add one short counterexample pressure test in plain language.
+
+Example:
+
+```text
+Someone may observe results but misread them, repeat the wrong action, or lack the ability to change behavior. In that case, feedback exists but improvement does not follow.
 ```
 
-`open-task` facts are presentation data. They do not derive contradictions, overclaims, or reconciliation statuses.
-
-## Compile-Check-Repair
-
-Use LogicBox like a tiny compiler while translating prose:
-
-1. Draft candidate facts in `work/ai-facts.shen`.
-2. Run `./logicbox preflight`.
-3. Repair compact atoms and obvious decomposition errors.
-4. Run `./logicbox check`.
-5. Repair translation errors such as `extraction-contract-violation`, `decomposition-needed`, malformed fact shape, and missing definitions already supplied by the prose.
-6. Leave real argument diagnostics in place, including `value-criteria-needed`, `missing-context`, `mitigation-needs-sufficiency-check`, `mitigation-needs-equivalence-check`, `claim-without-ground`, `analogy-needs-comparability`, `unclear-scope`, reconciliation tensions, and evidence gaps.
-7. Explain only the remaining Shen-derived flags.
-
-Default mode is structure-only: no internet and no factual truth checking. Evidence suggestion and evidence augmentation can be added later as explicit modes, with external additions marked separately from the original argument.
+This counterexample is explanatory AI feedback, not a Shen-derived result.
 
 ## Rewrite Safety
 
-LogicBox rewrites are patch-first. The AI should not jump from diagnostics to polished prose. The safe pipeline is:
+LogicBox rewrites are patch-first. The AI should not jump from diagnostics to polished prose.
+
+Safe pipeline:
 
 ```text
 diagnose draft
@@ -206,44 +430,92 @@ Rewrite patches have an explicit mode:
 - `rewrite_with_user_facts`: may fill placeholders only with facts the user explicitly supplied.
 - `evidence_mode`: may add external facts only when they are marked as externally sourced.
 
-In `structure_only`, allowed patch operations are `keep`, `split`, `move`, `rephrase`, `surface-implicit-criterion`, `insert-placeholder`, `label`, and `mark-unresolved`.
+In `structure_only`, allowed patch operations are:
 
-In `rewrite_with_user_facts`, allowed patch operations are `keep`, `rephrase`, `insert-user-fact`, `resolve-gap`, `mark-unresolved`, `surface-implicit-criterion`, `move`, and `split`. Every `insert-user-fact` must reference one existing gap and carry `USER_SUPPLIED` provenance.
+```text
+keep
+split
+move
+rephrase
+surface-implicit-criterion
+insert-placeholder
+label
+mark-unresolved
+```
+
+In `rewrite_with_user_facts`, allowed patch operations are:
+
+```text
+keep
+rephrase
+insert-user-fact
+resolve-gap
+mark-unresolved
+surface-implicit-criterion
+move
+split
+```
+
+Every `insert-user-fact` must reference one existing gap and carry `USER_SUPPLIED` provenance.
 
 User-supplied facts are allowed mutations, but they are not automatically compatible with the argument. After gap fills, LogicBox reruns Shen and can assign `[plan-status P needs-reconciliation]` when new user facts conflict with claimed benefits, uniformity rules, subgroup treatment, fallback equivalence, or necessity claims.
 
-Gap fills are reported as `resolved-clean`, `answered-conflicting`, or `still-open`. A user answer can be accepted for provenance while still being `answered-conflicting` if Shen derives a contradiction or tension from the structured facts it introduces.
+Gap fills are reported as:
 
-Do not bury consistency-relevant user answers only inside `[definition ... "..."]` strings. Extract structured facts such as:
+- `resolved-clean`
+- `answered-conflicting`
+- `still-open`
 
-```shen
-[user-supplied G3 slackrule]
-[benefit c1 deep-work]
-[policy-condition c1 slackrule]
-[undermines slackrule deep-work]
-[policy-rule hrguides uniform-rules]
-[prohibits hrguides exceptions]
-[exception-rule newoffice]
-[exception-to newoffice c1]
-[group-rule newoffice new-employees]
-[conflicts-with-target newoffice threeday]
-[needs-equivalence-check alternatives]
-[equivalence-status alternatives unknown]
-[necessity-ground k3 quitrisk]
-[evidence-status quitrisk unknown]
+A user answer can be accepted for provenance while still being `answered-conflicting` if Shen derives a contradiction or tension from the structured facts it introduces.
+
+### Gap objects
+
+Gap objects are first-class:
+
+```json
+{
+  "id": "G1",
+  "type": "threshold-needed",
+  "subject": "large apartment buildings",
+  "prompt": "define which buildings count as \"large\""
+}
 ```
 
-The rewrite preflight blocks new numbers, thresholds, percentages, deadlines, named programs, proper nouns, empirical claims, comparison claims, implementation procedures, groups, stronger modality, and uniqueness claims unless they are represented as placeholders.
+A structure-only rewrite should use the gap instead of inventing the missing fact:
 
-Stage 1 rewrite-safety migration keeps `scripts/rewrite-safety.js` as a wrapper while Shen/SBCL derives parity safety flags through `shen/run-rewrite-safety.shen`. The parity suite compares legacy JS behavior with Shen-derived acceptance for invented thresholds, named programs, user-supplied insertions, deleted protected claims, preserved unresolved protected claims, and transit-pass gap-fill contradictions.
+```text
+The city should require large apartment buildings — [G1: define which buildings count as "large"] — to install smart cooling systems.
+```
 
-Stage 2 preflight migration moves compound-atom, decomposition, and value-criteria marker classification into Shen/SBCL. `./logicbox check` and `./logicbox mutation` enrich facts inside the same Shen run by default; `./logicbox preflight` remains available for inspecting marker facts, and `--legacy-js-preflight` temporarily compares against `scripts/preflight-facts.js`.
+Every changed sentence needs provenance such as:
 
-Stage 3 rewrite-safety migration makes Shen/SBCL the default source of truth for rewrite mutation acceptance and protected-claim deletion checks through `shen/run-rewrite-safety.shen`. `scripts/rewrite-safety.js` remains as JSON/file glue, patch application, report formatting, repair plumbing, and a temporary parity harness. Pass `--legacy-js-rewrite-safety` to `./logicbox rewrite-preflight`, `./logicbox rewrite`, or `./logicbox rewrite-mutation` only when comparing against the old JavaScript checker.
+```text
+CLARIFIED
+REORDERED
+BRACKETED_GAP
+SURFACED_CRITERIA
+USER_SUPPLIED
+MARKED_UNRESOLVED
+```
 
-Structure-only rewrites must also preserve protected claims. A rewrite may mark a protected claim unresolved, but it may not replace it with `[undefined: fill missing information]` or omit it. Protected roles include main recommendations, core/scope conditions, objections, concessions, rebuttals, safeguards, mitigations, exceptions, equity guardrails, and value conclusions.
+Unlabeled additions are rejected.
 
-Structured consistency helper facts are not manual notes. Shen consumes generic bridge facts such as `[requires C X]`, `[denies Y X]`, `[prohibits C X]`, `[implies Y X]`, `[conflicts Y X]`, and `[undermines Y X]` to derive formal contradiction or tension flags. These bridge facts usually belong in `work/adapter-facts.shen`, not in the permanent rule kernel.
+### Protected claims
+
+Structure-only rewrites must preserve protected claims. A rewrite may mark a protected claim unresolved, but it may not replace it with a generic placeholder or omit it.
+
+Protected roles include:
+
+- main recommendations
+- core or scope conditions
+- objections
+- concessions
+- rebuttals
+- safeguards
+- mitigations
+- exceptions
+- equity guardrails
+- value conclusions
 
 Use protected-role facts in symbolic mutation checks:
 
@@ -264,46 +536,13 @@ Then the rewrite must show preservation with same-ID rewrite status, corresponde
 [rewrite-status rw-o1 preserved]
 ```
 
-If a protected role disappears, Shen derives deletion flags such as `[deleted-main-claim c1]`, `[deleted-condition c2]`, or `[deleted-value-conclusion k1]`. The text mutation report also includes deletion checks for main claims, core conditions, objections, safeguards, and conclusions.
+If a protected role disappears, Shen derives deletion flags such as:
 
-Gap objects are first-class:
-
-```json
-{
-  "id": "G1",
-  "type": "threshold-needed",
-  "subject": "large apartment buildings",
-  "prompt": "define which buildings count as \"large\""
-}
+```shen
+[deleted-main-claim c1]
+[deleted-condition c2]
+[deleted-value-conclusion k1]
 ```
-
-A structure-only rewrite should use the gap instead of inventing the missing fact:
-
-```text
-The city should require large apartment buildings — [G1: define which buildings count as "large"] — to install smart cooling systems.
-```
-
-Every changed sentence needs provenance such as `CLARIFIED`, `REORDERED`, `BRACKETED_GAP`, `SURFACED_CRITERIA`, `USER_SUPPLIED`, or `MARKED_UNRESOLVED`. Unlabeled additions are rejected.
-
-Run the safe rewrite path with:
-
-```sh
-./logicbox rewrite-preflight
-./logicbox rewrite
-./logicbox rewrite-mutation
-```
-
-The final report contains:
-
-1. Updated rewrite
-2. Gap status
-3. Mutation/provenance report
-4. Consistency status
-5. Structural re-check delta
-6. Remaining flags grouped by gap
-7. Next recommended action
-
-Core rule: the rewrite may reduce confusion, but it may not reduce factual uncertainty.
 
 Deletion rule: if inserting a placeholder would erase or mutate the main claim, preserve the original sentence and list the gap externally:
 
@@ -313,9 +552,72 @@ The hospital should use an AI scheduling assistant to create nurse schedules, bu
 [Unresolved: G1 patient coverage, G2 nurse fairness, G3 emergency staffing.]
 ```
 
+### Safe rewrite output
+
+The final rewrite report contains:
+
+1. Updated rewrite
+2. Gap status
+3. Mutation/provenance report
+4. Consistency status
+5. Structural re-check delta
+6. Remaining flags grouped by gap
+7. Next recommended action
+
+## Temporary Adapter Facts
+
+Use `work/adapter-facts.shen` for per-run semantic bridge facts that help Shen connect the user's wording to general structural rules.
+
+Typical adapter facts are generic relationships:
+
+```shen
+[adapter-fact a1]
+[adapter-source a1 ai-semantic-bridge]
+[adapter-scope a1 current-run]
+[adapter-status a1 temporary]
+[implies nightlystudylogs privatestudymonitoring]
+```
+
+Adapter facts are loaded into the current Shen check and reported separately in `output/check-report.md`. They should stay out of `shen/rules.shen` unless deliberately promoted after neutral wording and regression coverage.
+
+Do not bury consistency-relevant user answers only inside `[definition ... "..."]` strings. Extract structured facts such as:
+
+```shen
+[user-supplied G3 slackrule]
+[benefit c1 deep-work]
+[policy-condition c1 slackrule]
+[undermines slackrule deep-work]
+[policy-rule hrguides uniform-rules]
+[prohibits hrguides exceptions]
+[exception-rule newoffice]
+[exception-to newoffice c1]
+[group-rule newoffice new-employees]
+[conflicts-with-target newoffice threeday]
+[needs-equivalence-check alternatives]
+[equivalence-status alternatives unknown]
+[necessity-ground k3 quitrisk]
+[evidence-status quitrisk unknown]
+```
+
+Structured consistency helper facts are not manual notes. Shen consumes generic bridge facts such as `[requires C X]`, `[denies Y X]`, `[prohibits C X]`, `[implies Y X]`, `[conflicts Y X]`, and `[undermines Y X]` to derive contradiction or tension flags. These bridge facts usually belong in `work/adapter-facts.shen`, not in the permanent rule kernel.
+
 ## Symbol Contract
 
-The extraction layer should emit a typed argument graph, not compact labels that hide domain structure. Shen can inspect `(action c1 ban)`, `(target c1 private-car-use)`, and `(location c1 downtown)`; it cannot inspect the internal meaning of a single atom like `downtown-car-ban`.
+The extraction layer should emit a typed argument graph, not compact labels that hide domain structure.
+
+Shen can inspect this:
+
+```shen
+[action c1 ban]
+[target c1 private-car-use]
+[location c1 downtown]
+```
+
+Shen cannot inspect the internal meaning of one opaque atom:
+
+```shen
+[term downtown-car-ban known]
+```
 
 Forbidden style:
 
@@ -336,9 +638,26 @@ Preferred style:
 [modality c1 deontic-recommendation]
 ```
 
-For policy-style arguments, use primitive facts such as `term`, `action`, `target`, `agent`, `location`, `timeframe`, `modality`, `reason-type`, `outcome`, `objects-to`, `mitigates`, `exempts`, `analogizes-from`, and `supports`. If a draft phrase cannot be mapped cleanly, represent it as unknown plus a definition instead of inventing a semantic-rich atom.
+For policy-style arguments, use primitive facts such as:
 
-The command-line `check` and `mutation` paths let Shen append marker facts for suspicious compact atoms, action-like atoms that should be decomposed, and value terms that need criteria inside the same default Shen run. `scripts/preflight-facts.js` is only a temporary parity path behind the legacy flag.
+```text
+term
+action
+target
+agent
+location
+timeframe
+modality
+reason-type
+outcome
+objects-to
+mitigates
+exempts
+analogizes-from
+supports
+```
+
+If a draft phrase cannot be mapped cleanly, represent it as unknown plus a definition instead of inventing a semantic-rich atom.
 
 Typed claim nodes may carry scope directly:
 
@@ -352,84 +671,11 @@ Typed claim nodes may carry scope directly:
 
 Those fields count as scoped structure. Use `scope-status` values such as `unknown`, `underspecified`, or `unbounded` only when Shen should derive `unclear-scope`.
 
-## Reading The Output
-
-Read the sectioned report first. It separates blocking issues from open user tasks, positive statuses, and the final plan status. Read `output/shen-output.txt` when you need the raw Shen result.
-
-`[plan-status p1 ready-for-final-rewrite]` means the current plan has no blocking structural flags. It does not mean the argument is true.
-
-`[plan-status p1 translation-error]` means the symbolic extraction itself needs repair before the argument should be judged.
-
-`[plan-status p1 needs-user-input]` means definitions, context, mechanisms, scope, or similar structural information is still missing. `[plan-status p1 awaiting-value-confirmation]` means only value criteria need confirmation. `[plan-status p1 needs-evidence]` means a remaining issue needs outside support or a narrower claim.
-
-`[plan-status p1 needs-reconciliation]` means translation and mutation provenance may be clean, but accepted facts introduce a tension with the argument's structure. This status outranks ordinary `needs-user-input`; mutation pass does not imply argument pass.
-
-Common flags:
-
-- `[extraction-contract-violation X]`: the extractor packed domain meaning into an opaque atom; decompose it into fields before judging the draft.
-- `[definition-needed X]`: a legitimate concept needs an operational definition.
-- `[decomposition-needed X]`: an action or condition should be represented as primitive predicates instead of a term.
-- `[value-criteria-missing X]`: a value conclusion such as fairness, safety, or responsibility needs explicit criteria.
-- `[value-criteria-stated X]`: criteria are stated in prose, but not yet linked to grounds.
-- `[value-criteria-grounded X]`: criteria are stated and linked to supporting grounds.
-- `[missing-mechanism C]`: a causal claim lacks a represented mechanism.
-- `[mechanism-restates-source ...]`: the explanation may repeat the starting point.
-- `[mechanism-restates-target ...]`: the explanation may repeat the desired result.
-- `[missing-context C X]`: a background assumption is needed.
-- `[tension benefit-undermined C Benefit Cond]`: a condition or rule weakens a benefit the claim relies on.
-- `[tension uniform-rule-vs-exception R E]`: a uniform/no-exceptions policy conflicts with an exception.
-- `[tension subgroup-rule-conflicts-with-policy C Rule Group]`: a subgroup rule conflicts with the main policy target.
-- `[mitigation-needs-equivalence-check M O]`: a fallback mitigation is traceable but may not preserve equivalent benefit.
-- `[overclaim necessity-counterfactual K Ground]`: a necessity claim relies on an unsupported counterfactual ground.
-- `[deleted-main-claim C]`: the main recommendation disappeared from the rewrite.
-- `[deleted-condition C]`: a core/scope condition disappeared from the rewrite.
-- `[deleted-objection O]`: an objection disappeared from the rewrite.
-- `[deleted-rebuttal R]`: a rebuttal disappeared from the rewrite.
-- `[deleted-safeguard S]`: a safeguard, exception, or equity guardrail disappeared from the rewrite.
-- `[deleted-mitigation M]`: a mitigation disappeared from the rewrite.
-- `[deleted-value-conclusion K]`: a value conclusion disappeared from the rewrite.
-- `[claim-without-ground K]`: a conclusion has no represented support.
-- `[stage-chain-too-short C Count Minimum]`: a causal bridge needs more intermediate structure.
-- `[scope-missing F]`: a plan fact needs a local, section, document, or global scope.
-- `[precomputed-flag ...]`: a final Shen result was incorrectly placed in the AI fact input.
-
-When a flag appears, the next move is usually one of three things: define a term, add the missing mechanism/context, or ask the human whether the AI misunderstood the intended meaning.
-
-## What To Ask The AI
-
-Useful prompts while working locally:
-
-```text
-Read work/draft.txt, extract a reasoning plan into work/ai-facts.shen, then run ./logicbox check and explain only Shen's output.
-```
-
-```text
-Use Shen's flags to ask me one or two clarification questions. Do not rewrite yet.
-```
-
-```text
-Update work/ai-facts.shen using my clarification and rerun the check.
-```
-
-```text
-Propose a rewrite, extract rewrite facts, run ./logicbox mutation, and tell me whether Shen found meaning drift.
-```
-
-```text
-Run ./logicbox stress and summarize which adversarial cases the kernel catches.
-```
-
-```text
-Run ./logicbox gold and ./logicbox fuzz, then summarize whether the reusable regression checks passed.
-```
-
-```text
-Run ./logicbox edge and summarize which edge-case families passed.
-```
+The command-line `check` and `mutation` paths let Shen append marker facts for suspicious compact atoms, action-like atoms that should be decomposed, and value terms that need criteria inside the same default Shen run. `scripts/preflight-facts.js` is only a temporary parity path behind the legacy flag.
 
 ## Reasoning Plans
 
-The AI should now group extracted facts into a lightweight reasoning plan. This is still plain Shen data, not a new app architecture.
+The AI should group extracted facts into a lightweight reasoning plan. This is still plain Shen data, not a new app architecture.
 
 ```shen
 [plan p1]
@@ -474,7 +720,7 @@ Use these fact families when useful:
 [fact-scope f4 global]
 ```
 
-## Important Boundary
+## Important Boundary For AI Facts
 
 The AI may write facts like:
 
@@ -508,6 +754,22 @@ The AI must not write derived flags like:
 
 Those belong to Shen and appear only in `output/shen-output.txt`.
 
+## Fact Format
+
+Facts are Shen data inside `work/ai-facts.shen`:
+
+```shen
+(set *facts*
+  [
+    [term some-symbol unknown]
+    [term another-symbol known]
+    [claim c1 causal some-symbol another-symbol]
+    [mechanism c1 unknown]
+    [modality c1 possible]
+    [scope c1 conditional]
+  ])
+```
+
 For rewrite checks, the AI appends only rewrite facts in `work/rewrite-facts.shen`:
 
 ```shen
@@ -530,25 +792,9 @@ Then run:
 ./logicbox mutation
 ```
 
-## Fact Format
-
-Facts are Shen data inside `work/ai-facts.shen`:
-
-```shen
-(set *facts*
-  [
-    [term some-symbol unknown]
-    [term another-symbol known]
-    [claim c1 causal some-symbol another-symbol]
-    [mechanism c1 unknown]
-    [modality c1 possible]
-    [scope c1 conditional]
-  ])
-```
-
 ## Explanatory Distance
 
-LogicBox can now detect when a mechanism exists syntactically but does not add much explanation.
+LogicBox can detect when a mechanism exists syntactically but does not add much explanation.
 
 Weak example:
 
@@ -574,69 +820,6 @@ lower cost of correction
 better allocation of effort
 improved information for future choices
 ```
-
-## Checks Implemented
-
-Current Shen-derived flags:
-
-- `[extraction-contract-violation X]`
-- `[definition-needed X]`
-- `[decomposition-needed X]`
-- `[value-criteria-needed X V]`
-- `[missing-mechanism C]`
-- `[mechanism-needs-causal-path M]`
-- `[unclear-modality C]`
-- `[unclear-scope C]`
-- `[mechanism-restates-source C Source Mechanism]`
-- `[mechanism-restates-target C Target Mechanism]`
-- `[mechanism-too-abstract C Mechanism]`
-- `[missing-context C Context]`
-- `[tension benefit-undermined C Benefit Condition]`
-- `[tension uniform-rule-vs-exception Rule Exception]`
-- `[tension subgroup-rule-conflicts-with-policy C Rule Group]`
-- `[mitigation-needs-equivalence-check Mitigation Objection]`
-- `[overclaim necessity-counterfactual Conclusion Ground]`
-- `[deleted-main-claim Claim]`
-- `[deleted-condition Claim]`
-- `[deleted-objection Objection]`
-- `[deleted-concession Concession]`
-- `[deleted-rebuttal Rebuttal]`
-- `[deleted-safeguard Safeguard]`
-- `[deleted-mitigation Mitigation]`
-- `[deleted-value-conclusion Conclusion]`
-- `[conclusion-stronger-than-premises Premise Conclusion OldModality NewModality]`
-- `[conclusion-stronger-than-ground Ground Conclusion OldModality NewModality]`
-- `[claim-without-ground Conclusion]`
-- `[stage-chain-too-short C Count Minimum]`
-- `[stage-restates-claim C Stage Label Term]`
-- `[mechanism-restates-stage C Stage Mechanism Label]`
-- `[missing-stage-bridge C Stage1 Stage2]`
-- `[scope-missing Fact]`
-- `[scope-conflict Fact1 Fact2 Scope1 Scope2]`
-- `[global-term-redefined-locally Term GlobalFact LocalFact]`
-- `[precomputed-flag FlagName ...]`
-- `[plan-incomplete P]`
-- `[clear-enough P]`
-- `[modality-mutation C R Old New]`
-- `[scope-mutation C R Old New]`
-- `[source-mutation C R Old New]`
-- `[target-mutation C R Old New]`
-
-`[clear-enough P]` is not a truth verdict. It only means this local plan has no blocking structural flags.
-
-`[plan-status P needs-reconciliation]` is the post-gap-fill consistency status. It separates "this user fact was allowed by provenance" from "this user fact still fits the argument."
-
-## Counterexample Feedback
-
-When Shen derives a weakness such as `missing-context`, `missing-mechanism`, `stage-chain-too-short`, `claim-without-ground`, or `conclusion-stronger-than-premises`, the AI should add one short "Counterexample pressure test" in plain language.
-
-Example:
-
-```text
-Someone may observe results but misread them, repeat the wrong action, or lack the ability to change behavior. In that case, feedback exists but improvement does not follow.
-```
-
-This counterexample is explanatory AI feedback, not a Shen-derived result.
 
 ## Worked Kernel Example
 
@@ -707,15 +890,70 @@ Clarifying question:
 What changes after observing results: strategy, attention, effort allocation, or the person's model of the task?
 ```
 
-## Stress Tests
+## Checks Implemented
 
-The test suite includes ordinary fixtures, adversarial fixtures, gold models, and generated fuzz invariants:
+Current Shen-derived flags include:
+
+```text
+[extraction-contract-violation X]
+[definition-needed X]
+[decomposition-needed X]
+[value-criteria-needed X V]
+[missing-mechanism C]
+[mechanism-needs-causal-path M]
+[unclear-modality C]
+[unclear-scope C]
+[mechanism-restates-source C Source Mechanism]
+[mechanism-restates-target C Target Mechanism]
+[mechanism-too-abstract C Mechanism]
+[missing-context C Context]
+[tension benefit-undermined C Benefit Condition]
+[tension uniform-rule-vs-exception Rule Exception]
+[tension subgroup-rule-conflicts-with-policy C Rule Group]
+[mitigation-needs-equivalence-check Mitigation Objection]
+[overclaim necessity-counterfactual Conclusion Ground]
+[deleted-main-claim Claim]
+[deleted-condition Claim]
+[deleted-objection Objection]
+[deleted-concession Concession]
+[deleted-rebuttal Rebuttal]
+[deleted-safeguard Safeguard]
+[deleted-mitigation Mitigation]
+[deleted-value-conclusion Conclusion]
+[conclusion-stronger-than-premises Premise Conclusion OldModality NewModality]
+[conclusion-stronger-than-ground Ground Conclusion OldModality NewModality]
+[claim-without-ground Conclusion]
+[stage-chain-too-short C Count Minimum]
+[stage-restates-claim C Stage Label Term]
+[mechanism-restates-stage C Stage Mechanism Label]
+[missing-stage-bridge C Stage1 Stage2]
+[scope-missing Fact]
+[scope-conflict Fact1 Fact2 Scope1 Scope2]
+[global-term-redefined-locally Term GlobalFact LocalFact]
+[precomputed-flag FlagName ...]
+[plan-incomplete P]
+[clear-enough P]
+[modality-mutation C R Old New]
+[scope-mutation C R Old New]
+[source-mutation C R Old New]
+[target-mutation C R Old New]
+```
+
+`[clear-enough P]` is not a truth verdict. It only means this local plan has no blocking structural flags.
+
+`[plan-status P needs-reconciliation]` is the post-gap-fill consistency status. It separates “this user fact was allowed by provenance” from “this user fact still fits the argument.”
+
+## Test Suites
+
+The test suite includes ordinary fixtures, adversarial fixtures, gold models, edge cases, and generated fuzz invariants.
+
+Run all tests:
 
 ```sh
 ./logicbox test
 ```
 
-The stress-only command runs just the adversarial fixtures:
+### Stress tests
 
 ```sh
 ./logicbox stress
@@ -731,17 +969,21 @@ Expected stress behavior:
 - `stress-scope-leak-model.shen`: local/global definition drift is flagged.
 - `stress-stage-circular-model.shen`: short or circular stage chains remain incomplete.
 
-## Gold And Fuzz Tests
-
-Gold tests live in `tests/gold/`. Each `.shen` model has a matching `.expected` file. These are minimal positive/negative examples for specific flags, such as missing context, stage-chain length, scope conflict, conclusion strength, and precomputed flags.
-
-Run them with:
+### Gold tests
 
 ```sh
 ./logicbox gold
 ```
 
-Edge-case suites live in `tests/edge/`. They are named fixtures for the five families most likely to break the kernel:
+Gold tests live in `tests/gold/`. Each `.shen` model has a matching `.expected` file. These are minimal positive/negative examples for specific flags, such as missing context, stage-chain length, scope conflict, conclusion strength, and precomputed flags.
+
+### Edge tests
+
+```sh
+./logicbox edge
+```
+
+Edge-case suites live in `tests/edge/`. They are named fixtures for the families most likely to break the kernel:
 
 - scope pathologies
 - stage/mechanism entanglement
@@ -749,25 +991,56 @@ Edge-case suites live in `tests/edge/`. They are named fixtures for the five fam
 - ground/conclusion/modality interactions
 - plan meta-structure
 
-Run them with:
+### Fuzz tests
 
 ```sh
-./logicbox edge
+./logicbox fuzz
 ```
 
 Fuzz tests are generated temporarily by the `logicbox` script. They check invariants rather than exact stored models:
 
 - no scope conflict when all scopes are identical
-- stage-chain-too-short fires only below the requested minimum
-- known context does not trigger missing-context
+- `stage-chain-too-short` fires only below the requested minimum
+- known context does not trigger `missing-context`
 - stronger conclusions over weaker grounds are flagged
 - modality and scope rewrite mutations are detected
 
-Run them with:
+## Implementation Notes
 
-```sh
-./logicbox fuzz
-```
+The current architecture intentionally separates roles:
+
+- Shell orchestrates commands.
+- Shen/SBCL derives structural flags and plan statuses.
+- JavaScript handles JSON/file glue, patch application, report formatting, and some remaining text heuristics.
+- AI interprets prose, proposes facts, explains Shen output, and asks human-facing questions.
+- The human remains the authority on intended meaning.
+
+The long-term direction is to keep migrating actual decision logic into Shen while leaving JavaScript as glue. In particular, protected-role inference, rewrite safety observations, and domain-specific heuristics should continue moving toward generic facts that Shen can inspect.
+
+Preferred core rule set:
+
+- extraction contract: facts must be decomposed enough for Shen to inspect
+- claim/support structure: conclusions need grounds and must not outrun support
+- scope/modality: unknown scope, invalid scope, scope conflict, and modality strengthening
+- definitions and criteria: unknown terms and value conclusions need criteria
+- missing context: explicit assumptions must be known or marked unknown
+- objection/mitigation sufficiency: objections must be answered; mitigations need sufficiency status
+- contradiction/tension: represented commitments such as `requires`, `denies`, `undermines`, and `conflicts-with-target`
+- rewrite mutation/deletion safety: protected commitments must be preserved
+- gap-fill recheck: user-supplied facts are allowed, then checked for contradiction
+- plan status: clear, user-input, evidence, or reconciliation
+
+Avoid rule creep. Domain-specific examples are useful as tests, but the reusable kernel should prefer generic predicates over noun-specific rules.
+
+## Known Limitations
+
+- Hidden conflicts inside `[definition X "..."]` strings are invisible unless extracted as structured facts.
+- User-supplied facts can be accepted for provenance while still too unstructured for Shen to evaluate.
+- Reconciliation can leave stale original facts unless the AI updates `ai-facts.shen` carefully.
+- Value-term preflight can over-flag broad words like fairness, privacy, or necessity.
+- Domain-specific contradictions are under-flagged unless the AI supplies explicit `requires`, `denies`, `undermines`, or `conflicts-with-target` facts.
+- JavaScript text heuristics can both over-block and under-block rewrites.
+- The biggest architectural risk is infinite rule creep: every new scenario tempts a new noun-specific rule.
 
 ## Troubleshooting
 
@@ -778,6 +1051,8 @@ If Shen reports a syntax error, inspect `work/ai-facts.shen` for mismatched brac
 If a flag seems wrong, first check whether the AI encoded the prose correctly. The system checks the facts it was given; it does not read the draft directly.
 
 If `[precomputed-flag ...]` appears, remove the derived flag from `work/ai-facts.shen`. The AI may submit helper facts, but Shen must derive final flags.
+
+If a rewrite is rejected, check for unlabeled additions, invented numbers, invented thresholds, deleted protected claims, changed modality, changed scope, or placeholders that erased the main claim.
 
 ## Upload Checklist
 
@@ -807,7 +1082,13 @@ work/
 output/
 ```
 
-Generated raw Shen logs are ignored by `.gitignore`; the useful human-readable outputs are kept in `output/shen-output.txt`, `output/mutation-output.txt`, and `output/ai-feedback.md`.
+Generated raw Shen logs are ignored by `.gitignore`; the useful human-readable outputs are kept in:
+
+```text
+output/shen-output.txt
+output/mutation-output.txt
+output/ai-feedback.md
+```
 
 ## Files
 
@@ -819,14 +1100,26 @@ skill.md
 work/
   draft.txt
   ai-facts.shen
+  adapter-facts.shen
+  rewrite-patch.json
   rewrite.md
   rewrite-facts.shen
 shen/
   rules.shen
   run.shen
+  run-preflight.shen
   run-mutation.shen
+  run-rewrite-safety.shen
+scripts/
+  preflight-facts.js
+  rewrite-safety.js
+tests/
+  gold/
+  edge/
 output/
   shen-output.txt
+  check-report.md
   ai-feedback.md
   mutation-output.txt
+  rewrite-report.md
 ```

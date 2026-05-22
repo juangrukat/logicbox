@@ -1,0 +1,80 @@
+## Structure-only rewrite
+
+The company should offer a monthly wellness stipend to all employees, but only if the program is affordable and employees who cannot use typical wellness services are treated fairly. The program is affordable if it costs less than the current employee engagement budget. Fair treatment means every employee receives the same gym reimbursement, whether or not they can use a gym.
+
+Employees report high stress, health insurance does not cover many preventive activities, and [G3: evidence that stress and health insurance gaps contribute to burnout] the company is concerned about burnout.
+
+If employees receive a wellness stipend, [G4: evidence or reasoning that wellness stipends reduce turnover] they will have more options for managing stress, feel more supported by the company, and be less likely to quit.
+
+Standard wellness services means gym memberships, fitness classes, diet programs, and company-approved meditation apps. The policy should not disadvantage employees who live in areas without gyms, employees with disabilities, employees with caregiving responsibilities, religious restrictions, or employees who prefer nontraditional wellness practices. Employees who cannot use gyms will receive no separate benefit because the stipend is meant to encourage healthier habits.
+
+If some employees cannot reasonably use standard wellness services, the company should provide an equivalent wellness benefit.
+
+[Unresolved: G5 equivalent wellness benefit.]
+
+Some finance leaders worry that a wellness stipend will become too expensive [G6: define at what cost threshold the stipend becomes too expensive].
+
+That concern matters.
+
+But the company already spends money on employee engagement programs, and a wellness stipend may be a fairer use of those funds because employees can choose the support that fits their needs. The program is affordable if it costs less than the current employee engagement budget. [G7: size and redirectability of current employee engagement program budget] [G8: define the standard by which a wellness stipend is fairer than current engagement spending].
+
+The company will not track employees' health activities, but employees must upload receipts and monthly activity logs so HR can verify that the stipend was used for approved wellness purposes.
+
+Employees should be able to choose wellness activities without being monitored.
+
+[G10: identify comparable companies and their wellness programs] Other companies offer wellness benefits, so this company can do it too.
+
+Most employees support more flexible wellness options.
+
+Therefore, a monthly wellness stipend is a fair, practical, and necessary response to burnout and retention problems. Practical means the program uses the existing employee engagement budget and does not require new payroll systems. The policy is necessary because burnout and retention problems cannot be solved any other way. [G12: specify criteria for judging the stipend as fair].
+
+## Gap list
+
+G1: define what makes the program affordable
+G2: define fair treatment for employees who cannot use typical wellness services
+G5: define what counts as an equivalent wellness benefit
+G5b: define standard wellness services
+G9: define what monitoring or reporting is required vs forbidden
+G13: specify criteria for judging the stipend as practical
+G11: evidence that turnover is at crisis level
+G3: evidence that employee stress and health insurance gaps contribute to burnout
+G4: evidence or reasoning that wellness stipends reduce turnover
+G6: define at what cost threshold the stipend becomes too expensive
+G7: size and redirectability of current employee engagement program budget
+G8: define the standard by which a wellness stipend is fairer than current engagement spending
+G10: identify comparable companies and their wellness programs
+G12: specify criteria for judging the stipend as fair
+
+## Mutation report
+
+New evidence added: no
+New thresholds added: no, only placeholders
+New percentages added: no
+New named programs added: no
+New named entities added: no
+New dates/deadlines added: no
+New procedures added: no
+New groups added: no
+Scope changed: yes, user-supplied G2/G5/G11
+Modality strengthened: no
+Conclusion strengthened: no
+Objections removed: no
+Placeholders inserted: [G3: evidence that stress and health insurance gaps contribute to burnout], [G4: evidence or reasoning that wellness stipends reduce turnover], [G6: define at what cost threshold the stipend becomes too expensive], [G7: size and redirectability of current employee engagement program budget], [G8: define the standard by which a wellness stipend is fairer than current engagement spending], [G10: identify comparable companies and their wellness programs], [G12: specify criteria for judging the stipend as fair]
+
+Deletion checks:
+- Main claim preserved: yes
+- Core conditions preserved: yes
+- Objections preserved: yes
+- Safeguards preserved: yes
+- Conclusions preserved: yes
+
+Allowed addition: scope-changed "every employee receives the same gym"
+Source: USER_SUPPLIED G2
+Status: allowed
+Allowed addition: scope-changed "no separate benefit because the stipend"
+Source: USER_SUPPLIED G5
+Status: allowed
+Allowed addition: scope-changed "any other way"
+Source: USER_SUPPLIED G11
+Status: allowed
+Accepted: yes
