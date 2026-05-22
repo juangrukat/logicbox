@@ -119,7 +119,25 @@ When asked to fill gaps with user-supplied facts:
 
 User-supplied facts are allowed mutations, but they are not automatically logically compatible with the argument.
 
-Do not report structured helper facts as "implicit tensions, watch manually." If facts such as `[undermines X privacypreserved]`, `[undermines X protectedgroups]`, or `[conflicts-with-target X transitpass]` are present, Shen should derive formal `contradiction` or `tension` flags from them, and the plan status should be `needs-reconciliation`.
+Do not report structured helper facts as "implicit tensions, watch manually." If adapter facts such as `[requires C X]`, `[denies Y X]`, `[prohibits C X]`, `[implies Y X]`, `[conflicts Y X]`, or `[undermines Y X]` are present, Shen should derive formal `contradiction` or `tension` flags from them, and the plan status should be `needs-reconciliation`.
+
+Keep reports disciplined after Shen runs:
+
+1. Put blocking issues first: contradictions, unresolved required definitions, missing required context, overclaims, and mutation/deletion failures.
+2. Put unresolved reconciliation tensions in their own section.
+3. Put user work in `Open user tasks`: evidence still needed, optional definitions, and value confirmation.
+4. Put positive statuses such as `[value-criteria-grounded X]` outside the blocking list.
+5. Put the final `[plan-status ...]` in its own section.
+
+Use report-only facts when a remaining user task should be shown without adding a rule family:
+
+```shen
+[open-task evidence g9 "provide evidence for other universities experimenting"]
+[open-task definition limitedtime "define limited advisor time"]
+[open-task value fair "confirm fair criteria"]
+```
+
+`open-task` facts are presentation data. They should not be turned into contradictions, overclaims, or reconciliation rules.
 
 When asked to check a symbolic rewrite:
 
@@ -343,7 +361,7 @@ Preferred modalities for typed extraction are `deontic-recommendation`, `deontic
 
 If a term cannot be mapped to primitives, emit `[term Symbol unknown]` and `[definition Symbol "exact phrase or uncertainty"]` rather than inventing a compound domain atom.
 
-The command-line `check` and `mutation` paths enforce this with `scripts/preflight-facts.js`. When it detects a compressed standalone atom in a `term`, legacy `claim` source/target, `mechanism`, `outcome`, or similar compact position, it appends marker facts before Shen runs. Shen then derives `[extraction-contract-violation Symbol]`, `[decomposition-needed Symbol]`, or `[value-criteria-needed Symbol Value]`. These flags mean the extractor violated or underspecified the symbol contract; `[definition-needed Symbol]` means the writer's concept may genuinely need an operational definition.
+The command-line `check` and `mutation` paths enforce this inside the default Shen run. When Shen detects a compressed standalone atom in a `term`, legacy `claim` source/target, `mechanism`, `outcome`, or similar compact position, it appends marker facts before deriving flags. Shen then derives `[extraction-contract-violation Symbol]`, `[decomposition-needed Symbol]`, or `[value-criteria-needed Symbol Value]`. These flags mean the extractor violated or underspecified the symbol contract; `[definition-needed Symbol]` means the writer's concept may genuinely need an operational definition.
 
 ## Disallowed AI Facts
 
@@ -653,17 +671,43 @@ Shen should derive these first:
 1. extraction-contract-violation
 2. structural breaks such as definition-needed, decomposition-needed, missing-mechanism, unclear scope/modality, stage-chain-too-short, and claim-without-ground
 3. needs-reconciliation from post-gap consistency flags
-4. needs-evidence
-5. needs-user-input
-6. argument-clear-enough
+4. translation-error
+5. needs-evidence
+6. awaiting-value-confirmation
+7. needs-user-input
+8. ready-for-final-rewrite
 
 The post-gap consistency layer should derive:
 
 - `[tension benefit-undermined C Benefit Condition]`
+- `[contradiction required-protection-denied C Denial RequiredProtection]`
+- `[contradiction prohibited-action-required C ProhibitedAction RequiredAction]`
 - `[tension uniform-rule-vs-exception Rule Exception]`
 - `[tension subgroup-rule-conflicts-with-policy C Rule Group]`
 - `[mitigation-needs-equivalence-check Mitigation Objection]`
 - `[overclaim necessity-counterfactual Conclusion Ground]`
+
+## Report Categories
+
+Keep raw Shen output and user-facing reports distinct:
+
+- `output/shen-output.txt` contains formal flags and plan statuses.
+- `output/check-report.md` groups kernel result counts, blocking issues, reconciliation tensions, open user tasks, positive statuses, plan status, facts, and raw flags.
+- Rewrite recheck reports use the same categories before showing raw flag deltas.
+
+For a fully reconciled gap-fill with optional work remaining, say:
+
+```text
+Blocking issues: none.
+Resolved tensions: all.
+Remaining user tasks:
+- provide evidence for other universities experimenting
+- provide evidence for student demand
+- define limited advisor time
+Status: needs-user-input.
+```
+
+Do not call that state `needs-reconciliation` unless an actual current contradiction or tension remains.
 
 Deletion safety should derive:
 

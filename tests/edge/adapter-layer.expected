@@ -1,0 +1,8 @@
+[value-criteria-grounded k3]
+[contradiction required-protection-denied c1 noseparatesupport equivalentplanningsupport]
+[contradiction prohibited-action-required c1 privatestudymonitoring nightlystudylogs]
+[tension identical-treatment-vs-equitable-treatment sameplantemplate protectedstudentaccess]
+[tension safeguard-undermined advisorjudgment advisoroverrideonlybelow60]
+[tension benefit-undermined c1 studentcontrol oncepersemesterchange]
+[overclaim necessity-counterfactual k3 dropoutnoothersolution]
+[plan-status p1 needs-reconciliation]

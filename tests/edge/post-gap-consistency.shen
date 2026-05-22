@@ -34,7 +34,7 @@
     [term hrguides known]
     [definition hrguides "company-wide remote-work guidelines"]
     [policy-rule hrguides uniform-rules]
-    [policy-rule hrguides no-manager-exceptions]
+    [prohibits hrguides exceptions]
     [user-supplied G4 hrguides]
 
     [term newoffice known]
@@ -54,7 +54,7 @@
     [term alternatives known]
     [definition alternatives "employees who cannot benefit from remote work may work from the office instead"]
     [mitigates alternatives equitygap]
-    [mitigation-type alternatives office-fallback]
+    [needs-equivalence-check alternatives]
     [equivalence-status alternatives unknown]
     [user-supplied G5 alternatives]
 

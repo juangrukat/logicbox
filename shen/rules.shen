@@ -284,8 +284,34 @@
 (define collect-preflight-classification-flags
   Facts -> (collect-preflight-classification-flags-h Facts [] Facts))
 
+(define add-missing-preflight-marker
+  X Acc Facts -> (let Marker (preflight-classification-marker X)
+            (if (= Marker [])
+             Acc
+             (if (fact-present? Marker Facts)
+              Acc
+              (if (fact-present? Marker Acc)
+               Acc
+               (snoc Acc Marker))))))
+
+(define collect-missing-preflight-classification-flags-h
+  [] Acc Facts -> Acc
+  [[term X _] | Rest] Acc Facts -> (collect-missing-preflight-classification-flags-h Rest (add-missing-preflight-marker X Acc Facts) Facts)
+  [[claim _ _ Source Target] | Rest] Acc Facts -> (collect-missing-preflight-classification-flags-h Rest (add-missing-preflight-marker Target (add-missing-preflight-marker Source Acc Facts) Facts) Facts)
+  [[rewrite-claim _ _ Source Target] | Rest] Acc Facts -> (collect-missing-preflight-classification-flags-h Rest (add-missing-preflight-marker Target (add-missing-preflight-marker Source Acc Facts) Facts) Facts)
+  [[ground-claim _ Source Target] | Rest] Acc Facts -> (collect-missing-preflight-classification-flags-h Rest (add-missing-preflight-marker Target (add-missing-preflight-marker Source Acc Facts) Facts) Facts)
+  [[conclusion _ X] | Rest] Acc Facts -> (collect-missing-preflight-classification-flags-h Rest (add-missing-preflight-marker X Acc Facts) Facts)
+  [[mechanism _ X] | Rest] Acc Facts -> (collect-missing-preflight-classification-flags-h Rest (add-missing-preflight-marker X Acc Facts) Facts)
+  [[outcome _ X] | Rest] Acc Facts -> (collect-missing-preflight-classification-flags-h Rest (add-missing-preflight-marker X Acc Facts) Facts)
+  [[risk _ X] | Rest] Acc Facts -> (collect-missing-preflight-classification-flags-h Rest (add-missing-preflight-marker X Acc Facts) Facts)
+  [[claim-content _ X] | Rest] Acc Facts -> (collect-missing-preflight-classification-flags-h Rest (add-missing-preflight-marker X Acc Facts) Facts)
+  [_ | Rest] Acc Facts -> (collect-missing-preflight-classification-flags-h Rest Acc Facts))
+
+(define collect-missing-preflight-classification-flags
+  Facts -> (collect-missing-preflight-classification-flags-h Facts [] Facts))
+
 (define preflight-enriched-facts
-  Facts -> (append Facts (collect-preflight-classification-flags Facts)))
+  Facts -> (append Facts (collect-missing-preflight-classification-flags Facts)))
 
 (define compound-domain-atom?
   X [] -> false
@@ -473,9 +499,13 @@
 (define plan-flag?
   P [precomputed-flag clear-enough P] Facts -> true
   P [precomputed-flag plan-incomplete P] Facts -> true
+  P [precomputed-flag plan-status P translation-error] Facts -> true
   P [precomputed-flag plan-status P needs-user-input] Facts -> true
   P [precomputed-flag plan-status P needs-evidence] Facts -> true
   P [precomputed-flag plan-status P needs-reconciliation] Facts -> true
+  P [precomputed-flag plan-status P structurally-clear] Facts -> true
+  P [precomputed-flag plan-status P awaiting-value-confirmation] Facts -> true
+  P [precomputed-flag plan-status P ready-for-final-rewrite] Facts -> true
   P [precomputed-flag missing-mechanism C] Facts -> (claim-belongs-to-plan? P C Facts)
   P [precomputed-flag missing-context C _] Facts -> (claim-belongs-to-plan? P C Facts)
   P [extraction-contract-violation _] Facts -> true
@@ -514,6 +544,7 @@
   P [unresolved-objection C _] Facts -> (claim-belongs-to-plan? P C Facts)
   P [mitigation-needs-sufficiency-check _ O] Facts -> true
   P [tension benefit-undermined C _ _] Facts -> (claim-belongs-to-plan? P C Facts)
+  P [tension safeguard-undermined _ _] Facts -> true
   P [tension uniform-rule-vs-exception _ _] Facts -> true
   P [tension subgroup-rule-conflicts-with-policy C _ _] Facts -> (claim-belongs-to-plan? P C Facts)
   P [mitigation-needs-equivalence-check _ _] Facts -> true
@@ -552,12 +583,35 @@
 (define plan-has-evidence-needed?
   P [] Facts -> false
   P [[evidence-needed _ _] | Rest] Facts -> true
-  P [[missing-context C _] | Rest] Facts -> (if (claim-belongs-to-plan? P C Facts) true (plan-has-evidence-needed? P Rest Facts))
   P [_ | Rest] Facts -> (plan-has-evidence-needed? P Rest Facts))
+
+(define plan-has-translation-error?
+  P [] Facts -> false
+  P [[extraction-contract-violation _] | Rest] Facts -> true
+  P [[decomposition-needed _] | Rest] Facts -> true
+  P [_ | Rest] Facts -> (plan-has-translation-error? P Rest Facts))
+
+(define value-confirmation-flag?
+  [value-criteria-missing _] -> true
+  [value-criteria-needed _ _] -> true
+  _ -> false)
+
+(define only-value-confirmation-flags?
+  [] -> true
+  [Flag | Rest] -> (if (value-confirmation-flag? Flag)
+                    (only-value-confirmation-flags? Rest)
+                    false))
+
+(define plan-has-value-confirmation-needed?
+  P [] Facts -> false
+  P [[value-criteria-missing _] | Rest] Facts -> true
+  P [[value-criteria-needed _ _] | Rest] Facts -> true
+  P [_ | Rest] Facts -> (plan-has-value-confirmation-needed? P Rest Facts))
 
 (define plan-has-reconciliation-needed?
   P [] Facts -> false
   P [[tension benefit-undermined C _ _] | Rest] Facts -> (if (claim-belongs-to-plan? P C Facts) true (plan-has-reconciliation-needed? P Rest Facts))
+  P [[tension safeguard-undermined _ _] | Rest] Facts -> true
   P [[tension subgroup-rule-conflicts-with-policy C _ _] | Rest] Facts -> (if (claim-belongs-to-plan? P C Facts) true (plan-has-reconciliation-needed? P Rest Facts))
   P [[tension uniform-rule-vs-exception _ _] | Rest] Facts -> true
   P [[mitigation-needs-equivalence-check _ _] | Rest] Facts -> true
@@ -572,9 +626,15 @@
 (define incomplete-plan-status
   P Facts -> (if (plan-has-reconciliation-needed? P (blocking-flags Facts) Facts)
               [[plan-status P needs-reconciliation]]
-              (if (plan-has-evidence-needed? P (blocking-flags Facts) Facts)
-              [[plan-status P needs-user-input] [plan-status P needs-evidence]]
-              [[plan-status P needs-user-input]])))
+              (if (plan-has-translation-error? P (blocking-flags Facts) Facts)
+               [[plan-status P translation-error]]
+               (if (plan-has-evidence-needed? P (blocking-flags Facts) Facts)
+                [[plan-status P needs-evidence]]
+                (if (plan-has-value-confirmation-needed? P (blocking-flags Facts) Facts)
+                 (if (only-value-confirmation-flags? (blocking-flags Facts))
+                  [[plan-status P awaiting-value-confirmation]]
+                  [[plan-status P needs-user-input]])
+                 [[plan-status P needs-user-input]])))))
 
 (define no-flags?
   [] -> true
@@ -1057,11 +1117,6 @@
 (define collect-mitigation-sufficiency
   Facts -> (collect-mitigation-sufficiency-h Facts Facts))
 
-(define condition-undermines-benefit?
-  Cond Benefit [] -> false
-  Cond Benefit [[undermines Cond Benefit] | _] -> true
-  Cond Benefit [_ | Rest] -> (condition-undermines-benefit? Cond Benefit Rest))
-
 (define collect-benefit-undermined-h
   [] Facts -> []
   [[benefit C Benefit] | Rest] Facts -> (append (collect-benefit-undermined-for C Benefit Facts Facts)
@@ -1070,9 +1125,8 @@
 
 (define collect-benefit-undermined-for
   C Benefit [] Facts -> []
-  C Benefit [[policy-condition C Cond] | Rest] Facts -> (if (condition-undermines-benefit? Cond Benefit Facts)
-                                                          [[tension benefit-undermined C Benefit Cond] | (collect-benefit-undermined-for C Benefit Rest Facts)]
-                                                          (collect-benefit-undermined-for C Benefit Rest Facts))
+  C Benefit [[undermines Actor Benefit] | Rest] Facts -> [[tension benefit-undermined C Benefit Actor] |
+                                                          (collect-benefit-undermined-for C Benefit Rest Facts)]
   C Benefit [_ | Rest] Facts -> (collect-benefit-undermined-for C Benefit Rest Facts))
 
 (define collect-benefit-undermined
@@ -1080,7 +1134,7 @@
 
 (define no-exceptions-rule?
   R [] -> false
-  R [[policy-rule R no-manager-exceptions] | _] -> true
+  R [[prohibits R exceptions] | _] -> true
   R [[policy-rule R no-exceptions] | _] -> true
   R [_ | Rest] -> (no-exceptions-rule? R Rest))
 
@@ -1131,7 +1185,8 @@
 
 (define needs-equivalence-check?
   M [] -> false
-  M [[mitigation-type M office-fallback] | _] -> true
+  M [[needs-equivalence-check M] | _] -> true
+  M [[mitigation-requires M equivalence] | _] -> true
   M [[mitigation-type M fallback] | _] -> true
   M [_ | Rest] -> (needs-equivalence-check? M Rest))
 
@@ -1394,101 +1449,109 @@
             [[mutation-status accepted]]
             [[mutation-status rejected]]))
 
-(define requires-equivalent-benefit?
-  X [] -> false
-  X [[requires-equivalent-benefit X] | _] -> true
-  X [[mitigation-type X equivalent-benefit-fallback] | _] -> true
-  X [_ | Rest] -> (requires-equivalent-benefit? X Rest))
+(define collect-denials-for-requirement
+  C X [] Facts -> []
+  C X [[denies Y X] | Rest] Facts -> [[contradiction required-protection-denied C Y X] |
+                                      (collect-denials-for-requirement C X Rest Facts)]
+  C X [_ | Rest] Facts -> (collect-denials-for-requirement C X Rest Facts))
 
-(define denies-equivalent-benefit?
-  X [] -> false
-  X [[denies-equivalent-benefit X] | _] -> true
-  X [[equivalence-status X denied] | _] -> true
-  X [[equivalence-status X none] | _] -> true
-  X [_ | Rest] -> (denies-equivalent-benefit? X Rest))
-
-(define collect-equivalent-benefit-contradictions-h
+(define collect-required-denied-contradictions-h
   [] Facts -> []
-  [[requires-equivalent-benefit X] | Rest] Facts -> (if (denies-equivalent-benefit? X Facts)
-                                                     [[contradiction equivalent-benefit-required-vs-denied X] | (collect-equivalent-benefit-contradictions-h Rest Facts)]
-                                                     (collect-equivalent-benefit-contradictions-h Rest Facts))
-  [[mitigation-type X equivalent-benefit-fallback] | Rest] Facts -> (if (requires-equivalent-benefit? X Facts)
-                                                                     (collect-equivalent-benefit-contradictions-h Rest Facts)
-                                                                     (if (denies-equivalent-benefit? X Facts)
-                                                                      [[contradiction equivalent-benefit-required-vs-denied X] | (collect-equivalent-benefit-contradictions-h Rest Facts)]
-                                                                      (collect-equivalent-benefit-contradictions-h Rest Facts)))
-  [_ | Rest] Facts -> (collect-equivalent-benefit-contradictions-h Rest Facts))
+  [[requires C X] | Rest] Facts -> (append (collect-denials-for-requirement C X Facts Facts)
+                                           (collect-required-denied-contradictions-h Rest Facts))
+  [_ | Rest] Facts -> (collect-required-denied-contradictions-h Rest Facts))
 
-(define collect-equivalent-benefit-contradictions
-  Facts -> (collect-equivalent-benefit-contradictions-h Facts Facts))
+(define collect-required-denied-contradictions
+  Facts -> (collect-required-denied-contradictions-h Facts Facts))
 
-(define collect-trip-tracking-contradictions-h
+(define implies?
+  Y Y Facts -> true
+  Y X [] -> false
+  Y X [[implies Y X] | _] -> true
+  Y X [_ | Rest] -> (implies? Y X Rest))
+
+(define collect-prohibited-required-for
+  C X [] Facts -> []
+  C X [[requires C Y] | Rest] Facts -> (if (implies? Y X Facts)
+                                        [[contradiction prohibited-action-required C X Y] |
+                                         (collect-prohibited-required-for C X Rest Facts)]
+                                        (collect-prohibited-required-for C X Rest Facts))
+  C X [_ | Rest] Facts -> (collect-prohibited-required-for C X Rest Facts))
+
+(define collect-prohibited-required-contradictions-h
   [] Facts -> []
-  [[no-trip-tracking X] | Rest] Facts -> (if (fact-present? [id-scan-verification X] Facts)
-                                          [[contradiction no-trip-tracking-vs-id-scan-verification X] | (collect-trip-tracking-contradictions-h Rest Facts)]
-                                          (collect-trip-tracking-contradictions-h Rest Facts))
-  [_ | Rest] Facts -> (collect-trip-tracking-contradictions-h Rest Facts))
+  [[prohibits C X] | Rest] Facts -> (append (collect-prohibited-required-for C X Facts Facts)
+                                            (collect-prohibited-required-contradictions-h Rest Facts))
+  [_ | Rest] Facts -> (collect-prohibited-required-contradictions-h Rest Facts))
 
-(define collect-trip-tracking-contradictions
-  Facts -> (collect-trip-tracking-contradictions-h Facts Facts))
+(define collect-prohibited-required-contradictions
+  Facts -> (collect-prohibited-required-contradictions-h Facts Facts))
+
+(define fair-value-definition?
+  X [] -> false
+  X [[value-definition fair X] | _] -> true
+  X [_ | Rest] -> (fair-value-definition? X Rest))
+
+(define identical-treatment?
+  X [] -> false
+  X [[identical-treatment X] | _] -> true
+  X [_ | Rest] -> (identical-treatment? X Rest))
+
+(define collect-access-conflicts-for
+  X [] Facts -> []
+  X [[conflicts X Access] | Rest] Facts -> [[tension identical-treatment-vs-equitable-treatment X Access] |
+                                            (collect-access-conflicts-for X Rest Facts)]
+  X [_ | Rest] Facts -> (collect-access-conflicts-for X Rest Facts))
 
 (define collect-treatment-tensions-h
   [] Facts -> []
   [[identical-treatment X] | Rest] Facts -> (if (fact-present? [requires-equitable-treatment X] Facts)
                                              [[tension identical-treatment-vs-equitable-treatment X] | (collect-treatment-tensions-h Rest Facts)]
-                                             (collect-treatment-tensions-h Rest Facts))
+                                             (if (fair-value-definition? X Facts)
+                                               (append (collect-access-conflicts-for X Facts Facts)
+                                                       (collect-treatment-tensions-h Rest Facts))
+                                               (collect-treatment-tensions-h Rest Facts)))
   [_ | Rest] Facts -> (collect-treatment-tensions-h Rest Facts))
 
 (define collect-treatment-tensions
   Facts -> (collect-treatment-tensions-h Facts Facts))
 
-(define collect-helper-privacy-contradictions-h
+(define collect-direct-conflict-tensions-h
   [] Facts -> []
-  [[undermines Actor privacypreserved] | Rest] Facts -> [[contradiction no-trip-tracking-vs-id-scan-verification Actor privacypreserved] |
-                                                         (collect-helper-privacy-contradictions-h Rest Facts)]
-  [_ | Rest] Facts -> (collect-helper-privacy-contradictions-h Rest Facts))
+  [[conflicts X Y] | Rest] Facts -> (if (identical-treatment? X Facts)
+                                     (collect-direct-conflict-tensions-h Rest Facts)
+                                     [[tension conflict X Y] | (collect-direct-conflict-tensions-h Rest Facts)])
+  [_ | Rest] Facts -> (collect-direct-conflict-tensions-h Rest Facts))
 
-(define collect-helper-privacy-contradictions
-  Facts -> (collect-helper-privacy-contradictions-h Facts Facts))
+(define collect-direct-conflict-tensions
+  Facts -> (collect-direct-conflict-tensions-h Facts Facts))
 
-(define collect-helper-equity-tensions-h
+(define collect-safeguard-undermined-for
+  X [] Facts -> []
+  X [[undermines Actor X] | Rest] Facts -> [[tension safeguard-undermined X Actor] |
+                                           (collect-safeguard-undermined-for X Rest Facts)]
+  X [_ | Rest] Facts -> (collect-safeguard-undermined-for X Rest Facts))
+
+(define collect-safeguard-undermined-h
   [] Facts -> []
-  [[undermines Actor protectedgroups] | Rest] Facts -> [[tension equity-protection-undermined Actor protectedgroups] |
-                                                        (collect-helper-equity-tensions-h Rest Facts)]
-  [_ | Rest] Facts -> (collect-helper-equity-tensions-h Rest Facts))
+  [[safeguard X] | Rest] Facts -> (append (collect-safeguard-undermined-for X Facts Facts)
+                                          (collect-safeguard-undermined-h Rest Facts))
+  [[term X safeguard] | Rest] Facts -> (append (collect-safeguard-undermined-for X Facts Facts)
+                                               (collect-safeguard-undermined-h Rest Facts))
+  [_ | Rest] Facts -> (collect-safeguard-undermined-h Rest Facts))
 
-(define collect-helper-equity-tensions
-  Facts -> (collect-helper-equity-tensions-h Facts Facts))
+(define collect-safeguard-undermined
+  Facts -> (collect-safeguard-undermined-h Facts Facts))
 
-(define collect-helper-target-conflict-tensions-h
-  [] Facts -> []
-  [[conflicts-with-target Actor transitpass] | Rest] Facts -> [[tension fairness-definition-conflicts-with-policy-target Actor transitpass] |
-                                                               (collect-helper-target-conflict-tensions-h Rest Facts)]
-  [_ | Rest] Facts -> (collect-helper-target-conflict-tensions-h Rest Facts))
-
-(define collect-helper-target-conflict-tensions
-  Facts -> (collect-helper-target-conflict-tensions-h Facts Facts))
-
-(define collect-helper-equivalent-benefit-denials-h
-  [] Facts -> []
-  [[conflicts-with-target Actor transitpass] | Rest] Facts -> [[contradiction equivalent-benefit-required-vs-denied Actor transitpass] |
-                                                               (collect-helper-equivalent-benefit-denials-h Rest Facts)]
-  [_ | Rest] Facts -> (collect-helper-equivalent-benefit-denials-h Rest Facts))
-
-(define collect-helper-equivalent-benefit-denials
-  Facts -> (collect-helper-equivalent-benefit-denials-h Facts Facts))
-
-(define collect-helper-consistency-flags
-  Facts -> (append (collect-helper-privacy-contradictions Facts)
-           (append (collect-helper-equity-tensions Facts)
-           (append (collect-helper-target-conflict-tensions Facts)
-                   (collect-helper-equivalent-benefit-denials Facts)))))
+(define collect-generic-consistency-flags
+  Facts -> (append (collect-required-denied-contradictions Facts)
+           (append (collect-prohibited-required-contradictions Facts)
+           (append (collect-treatment-tensions Facts)
+           (append (collect-direct-conflict-tensions Facts)
+                   (collect-safeguard-undermined Facts))))))
 
 (define collect-consistency-contradictions
-  Facts -> (append (collect-equivalent-benefit-contradictions Facts)
-           (append (collect-trip-tracking-contradictions Facts)
-           (append (collect-treatment-tensions Facts)
-                   (collect-helper-consistency-flags Facts)))))
+  Facts -> (collect-generic-consistency-flags Facts))
 
 (define evidence-known?
   R [] -> false
@@ -1564,9 +1627,9 @@
   [[plan P] | Rest] Facts -> (if (plan-membership-mode? Facts)
                                (if (plan-has-flag? P (blocking-flags Facts) Facts)
                                 (append (incomplete-plan-status P Facts) (collect-plan-status-h Rest Facts))
-                                [[plan-status P argument-clear-enough] | (collect-plan-status-h Rest Facts)])
+                                [[plan-status P ready-for-final-rewrite] | (collect-plan-status-h Rest Facts)])
                                (if (no-flags? (blocking-flags Facts))
-                                [[plan-status P argument-clear-enough] | (collect-plan-status-h Rest Facts)]
+                                [[plan-status P ready-for-final-rewrite] | (collect-plan-status-h Rest Facts)]
                                 (append (incomplete-plan-status P Facts) (collect-plan-status-h Rest Facts))))
   [_ | Rest] Facts -> (collect-plan-status-h Rest Facts))
 

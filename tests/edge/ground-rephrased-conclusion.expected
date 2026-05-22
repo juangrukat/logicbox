@@ -1,2 +1,4 @@
+[extraction-contract-violation local-outcome]
+[extraction-contract-violation document-outcome]
 [conclusion-stronger-than-ground g1 k1 possible certain]
-[plan-status p1 needs-user-input]
+[plan-status p1 translation-error]

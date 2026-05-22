@@ -1,0 +1,56 @@
+(set *facts*
+  [
+    [plan p1]
+    [plan-source p1 adapter-layer]
+    [plan-goal p1 adapter-temporary-generic-consistency]
+    [plan-claim p1 c1]
+    [plan-conclusion p1 k3]
+
+    [term c1 claim]
+    [target c1 aistudyplans]
+    [requires c1 equivalentplanningsupport]
+    [prohibits c1 privatestudymonitoring]
+    [requires c1 nightlystudylogs]
+    [benefit c1 studentcontrol]
+    [identical-treatment sameplantemplate]
+    [value-definition fair sameplantemplate]
+    [safeguard advisorjudgment]
+
+    [conclusion k3 necessityconclusion]
+    [value-type k3 necessity]
+    [criteria-status k3 grounded]
+    [ground-claim g1 dropoutnoothersolution necessityconclusion]
+    [infers-to g1 k3]
+    [necessity-ground k3 dropoutnoothersolution]
+    [evidence-status dropoutnoothersolution unknown]
+
+    [adapter-fact a1]
+    [adapter-source a1 ai-semantic-bridge]
+    [adapter-scope a1 current-run]
+    [adapter-status a1 temporary]
+    [denies noseparatesupport equivalentplanningsupport]
+
+    [adapter-fact a2]
+    [adapter-source a2 ai-semantic-bridge]
+    [adapter-scope a2 current-run]
+    [adapter-status a2 temporary]
+    [implies nightlystudylogs privatestudymonitoring]
+
+    [adapter-fact a3]
+    [adapter-source a3 ai-semantic-bridge]
+    [adapter-scope a3 current-run]
+    [adapter-status a3 temporary]
+    [conflicts sameplantemplate protectedstudentaccess]
+
+    [adapter-fact a4]
+    [adapter-source a4 ai-semantic-bridge]
+    [adapter-scope a4 current-run]
+    [adapter-status a4 temporary]
+    [undermines oncepersemesterchange studentcontrol]
+
+    [adapter-fact a5]
+    [adapter-source a5 ai-semantic-bridge]
+    [adapter-scope a5 current-run]
+    [adapter-status a5 temporary]
+    [undermines advisoroverrideonlybelow60 advisorjudgment]
+  ])

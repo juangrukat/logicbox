@@ -11,5 +11,5 @@
                        (print-flags-rest Rest)))
 
 (output "LOGICBOX-BEGIN~%")
-(print-flags (derived-flags (value *facts*)))
+(print-flags (derived-flags (preflight-enriched-facts (value *facts*))))
 (output "LOGICBOX-END~%")

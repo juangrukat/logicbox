@@ -1,3 +1,4 @@
+[extraction-contract-violation reduced-air-pollution]
 [unclear-scope c1 location downtown]
 [modality-mixed c1]
 [unresolved-objection c1 o1]
@@ -7,4 +8,4 @@
 [popularity-weak-support p1-support c1]
 [exception-boundary-needed e1]
 [broad-ban-vs-exemptions c1 e1]
-[plan-status p1 needs-user-input]
+[plan-status p1 translation-error]

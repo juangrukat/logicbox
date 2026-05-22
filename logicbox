@@ -6,12 +6,14 @@ SHEN="${SHEN_SBCL:-/opt/homebrew/bin/shen-sbcl}"
 WORK="$ROOT/work"
 OUT="$ROOT/output"
 FACTS="$WORK/ai-facts.shen"
+ADAPTER_FACTS="$WORK/adapter-facts.shen"
 REWRITE_FACTS="$WORK/rewrite-facts.shen"
 REWRITE_PATCH="$WORK/rewrite-patch.json"
 REWRITE="$WORK/rewrite.md"
 PREFLIGHT_FACTS="$OUT/.preflight-facts.shen"
 REWRITE_REPORT="$OUT/rewrite-report.md"
 SHEN_BEFORE_REWRITE="$OUT/shen-before-rewrite.txt"
+CHECK_REPORT="$OUT/check-report.md"
 
 usage() {
   cat <<'EOF'
@@ -37,8 +39,9 @@ Usage:
 Workflow:
   1. Put prose in work/draft.txt.
   2. Put AI-proposed symbolic facts in work/ai-facts.shen.
-  3. Run ./logicbox preflight or ./logicbox check.
-  4. Read output/shen-output.txt.
+  3. Put temporary semantic bridge facts in work/adapter-facts.shen when needed.
+  4. Run ./logicbox preflight or ./logicbox check.
+  5. Read output/shen-output.txt and output/check-report.md.
 
 For safe prose rewrites, put a rewrite patch in work/rewrite-patch.json
 and run ./logicbox rewrite. For symbolic rewrite checks, put rewrite-derived
@@ -75,7 +78,7 @@ run_check_model() {
 }
 
 use_legacy_js_preflight() {
-  [[ "${2:-}" == "--legacy-js-preflight" ]]
+  [[ " $* " == *" --legacy-js-preflight "* ]]
 }
 
 rewrite_safety_args() {
@@ -87,12 +90,195 @@ rewrite_safety_args() {
 run_native_preflight() {
   local dest="$1"
   shift
+  local -a adapter_args
+  adapter_args=()
+  if [[ -f "$ADAPTER_FACTS" ]]; then
+    adapter_args=(-l "$ADAPTER_FACTS")
+  fi
   "$SHEN" \
     "$@" \
     -l "$ROOT/shen/rules.shen" \
+    "${adapter_args[@]}" \
     -l "$ROOT/shen/run-preflight.shen" \
     > "$OUT/.shen-preflight-raw-output.txt"
   capture_logicbox_output "$OUT/.shen-preflight-raw-output.txt" "$dest"
+}
+
+render_fact_lines() {
+  local file="$1"
+  local mode="$2"
+  if [[ ! -f "$file" ]]; then
+    echo "- none"
+    return
+  fi
+  awk -v mode="$mode" '
+    /^[[:space:]]*\[[^]]+\]/ {
+      line=$0
+      sub(/^[[:space:]]*/, "", line)
+      isUser = line ~ /^\[user-supplied[[:space:]]/
+      isAdapter = line ~ /^\[adapter-/
+      if (mode == "source" && !isUser && !isAdapter) { print "- " line; count++ }
+      if (mode == "user" && isUser) { print "- " line; count++ }
+      if (mode == "adapter") { print "- " line; count++ }
+    }
+    END {
+      if (count == 0) print "- none"
+    }
+  ' "$file" | sed '/^$/d'
+}
+
+render_flag_category() {
+  local flags="$1"
+  local mode="$2"
+  if [[ ! -f "$flags" ]]; then
+    echo "- none"
+    return
+  fi
+  awk -v mode="$mode" '
+    function add(line) { print "- " line; count++ }
+    /^\[/ {
+      isPlan = $0 ~ /^\[plan-status /
+      isPositive = $0 ~ /^\[value-criteria-grounded / || $0 ~ /^\[value-criteria-stated /
+      isEvidence = $0 ~ /^\[evidence-needed /
+      isValueOpen = $0 ~ /^\[value-criteria-missing / || $0 ~ /^\[value-criteria-needed /
+      isContext = $0 ~ /^\[missing-context /
+      isDefinition = $0 ~ /^\[definition-needed /
+      isBlocking = $0 ~ /^\[contradiction / ||
+        isDefinition ||
+        isContext ||
+        $0 ~ /^\[overclaim / ||
+        $0 ~ /^\[deleted-/ ||
+        $0 ~ /^\[mutation-violation / ||
+        $0 ~ /^\[patch-violation /
+      isTension = $0 ~ /^\[tension / || $0 ~ /^\[mitigation-needs-equivalence-check /
+
+      if (mode == "blocking" && isBlocking) add($0)
+      if (mode == "tensions" && isTension) add($0)
+      if (mode == "tasks" && (isEvidence || isDefinition || isContext || isValueOpen)) add($0)
+      if (mode == "positive" && isPositive) add($0)
+      if (mode == "status" && isPlan) add($0)
+    }
+    END {
+      if (count == 0) print "- none"
+    }
+  ' "$flags"
+}
+
+render_open_task_facts() {
+  local file="$1"
+  if [[ ! -f "$file" ]]; then
+    return
+  fi
+  awk '
+    /^[[:space:]]*\[open-task / {
+      line=$0
+      n=split(line, parts, "\"")
+      if (n >= 3) {
+        print "- " parts[2]
+      } else {
+        sub(/^[[:space:]]*/, "", line)
+        print "- " line
+      }
+      count++
+    }
+  ' "$file"
+}
+
+render_open_user_tasks() {
+  local flags="$1"
+  {
+    render_open_task_facts "$FACTS"
+    render_open_task_facts "$ADAPTER_FACTS"
+    render_flag_category "$flags" tasks
+  } | awk '
+    $0 == "- none" { next }
+    !seen[$0] { print; seen[$0] = 1; count++ }
+    END {
+      if (count == 0) print "- none"
+    }
+  '
+}
+
+render_kernel_summary() {
+  local flags="$1"
+  if [[ ! -f "$flags" ]]; then
+    echo "- Blocking issues: 0"
+    echo "- Reconciliation tensions: 0"
+    echo "- Mutation/deletion failures: 0"
+    return
+  fi
+  awk '
+    /^\[/ {
+      if ($0 ~ /^\[contradiction / ||
+          $0 ~ /^\[definition-needed / ||
+          $0 ~ /^\[missing-context / ||
+          $0 ~ /^\[overclaim / ||
+          $0 ~ /^\[deleted-/ ||
+          $0 ~ /^\[mutation-violation / ||
+          $0 ~ /^\[patch-violation /) blocking++
+      if ($0 ~ /^\[tension / || $0 ~ /^\[mitigation-needs-equivalence-check /) tensions++
+      if ($0 ~ /^\[deleted-/ || $0 ~ /^\[mutation-violation / || $0 ~ /^\[patch-violation /) mutation++
+    }
+    END {
+      print "- Blocking issues: " (blocking + 0)
+      print "- Reconciliation tensions: " (tensions + 0)
+      print "- Mutation/deletion failures: " (mutation + 0)
+    }
+  ' "$flags"
+}
+
+render_check_report() {
+  local dest="$1"
+  local flags="$2"
+  {
+    echo "## Kernel result"
+    echo
+    render_kernel_summary "$flags"
+    echo
+    echo "## Blocking issues"
+    echo
+    render_flag_category "$flags" blocking
+    echo
+    echo "## Reconciliation tensions"
+    echo
+    render_flag_category "$flags" tensions
+    echo
+    echo "## Open user tasks"
+    echo
+    render_open_user_tasks "$flags"
+    echo
+    echo "## Positive statuses"
+    echo
+    render_flag_category "$flags" positive
+    echo
+    echo "## Plan status"
+    echo
+    render_flag_category "$flags" status
+    echo
+    echo "## Source facts extracted from draft"
+    echo
+    render_fact_lines "$FACTS" source
+    echo
+    echo "## User-supplied facts from gap answers"
+    echo
+    render_fact_lines "$FACTS" user
+    echo
+    echo "## AI-generated adapter facts"
+    echo
+    if [[ -f "$ADAPTER_FACTS" ]]; then
+      render_fact_lines "$ADAPTER_FACTS" adapter
+    else
+      echo "- none"
+    fi
+    echo
+    echo "## Shen-derived flags"
+    echo
+    if [[ -s "$flags" ]]; then
+      sed 's/^/- /' "$flags"
+    else
+      echo "- none"
+    fi
+  } > "$dest"
 }
 
 assert_line() {
@@ -130,7 +316,12 @@ case "${1:-help}" in
       exit 1
     fi
     if use_legacy_js_preflight "$@"; then
-      node "$ROOT/scripts/preflight-facts.js" "$FACTS" > "$PREFLIGHT_FACTS"
+      typeset -a preflight_files
+      preflight_files=("$FACTS")
+      if [[ -f "$ADAPTER_FACTS" ]]; then
+        preflight_files+=("$ADAPTER_FACTS")
+      fi
+      node "$ROOT/scripts/preflight-facts.js" "${preflight_files[@]}" > "$PREFLIGHT_FACTS"
     else
       run_native_preflight "$PREFLIGHT_FACTS" -l "$FACTS"
     fi
@@ -138,42 +329,65 @@ case "${1:-help}" in
     ;;
   check)
     ensure_dirs
+    typeset -a adapter_args legacy_preflight_args
+    adapter_args=()
+    legacy_preflight_args=()
+    if [[ -f "$ADAPTER_FACTS" ]]; then
+      adapter_args=(-l "$ADAPTER_FACTS")
+    fi
     if [[ ! -x "$SHEN" ]]; then
       echo "Could not find shen-sbcl at: $SHEN" >&2
       echo "Set SHEN_SBCL=/path/to/shen-sbcl and try again." >&2
       exit 1
     fi
     if use_legacy_js_preflight "$@"; then
-      node "$ROOT/scripts/preflight-facts.js" "$FACTS" > "$PREFLIGHT_FACTS"
-    else
-      run_native_preflight "$PREFLIGHT_FACTS" -l "$FACTS"
+      typeset -a preflight_files
+      preflight_files=("$FACTS")
+      if [[ -f "$ADAPTER_FACTS" ]]; then
+        preflight_files+=("$ADAPTER_FACTS")
+      fi
+      node "$ROOT/scripts/preflight-facts.js" "${preflight_files[@]}" > "$PREFLIGHT_FACTS"
+      legacy_preflight_args=(-l "$PREFLIGHT_FACTS")
     fi
     "$SHEN" \
       -l "$FACTS" \
-      -l "$PREFLIGHT_FACTS" \
       -l "$ROOT/shen/rules.shen" \
+      "${adapter_args[@]}" \
+      "${legacy_preflight_args[@]}" \
       -l "$ROOT/shen/run.shen" \
       > "$OUT/.shen-raw-output.txt"
     capture_logicbox_output "$OUT/.shen-raw-output.txt" "$OUT/shen-output.txt"
+    render_check_report "$CHECK_REPORT" "$OUT/shen-output.txt"
     cat "$OUT/shen-output.txt"
     ;;
   mutation)
     ensure_dirs
+    typeset -a adapter_args legacy_preflight_args
+    adapter_args=()
+    legacy_preflight_args=()
+    if [[ -f "$ADAPTER_FACTS" ]]; then
+      adapter_args=(-l "$ADAPTER_FACTS")
+    fi
     if [[ ! -x "$SHEN" ]]; then
       echo "Could not find shen-sbcl at: $SHEN" >&2
       echo "Set SHEN_SBCL=/path/to/shen-sbcl and try again." >&2
       exit 1
     fi
     if use_legacy_js_preflight "$@"; then
-      node "$ROOT/scripts/preflight-facts.js" "$FACTS" "$REWRITE_FACTS" > "$PREFLIGHT_FACTS"
-    else
-      run_native_preflight "$PREFLIGHT_FACTS" -l "$FACTS" -l "$REWRITE_FACTS"
+      typeset -a preflight_files
+      preflight_files=("$FACTS" "$REWRITE_FACTS")
+      if [[ -f "$ADAPTER_FACTS" ]]; then
+        preflight_files+=("$ADAPTER_FACTS")
+      fi
+      node "$ROOT/scripts/preflight-facts.js" "${preflight_files[@]}" > "$PREFLIGHT_FACTS"
+      legacy_preflight_args=(-l "$PREFLIGHT_FACTS")
     fi
     "$SHEN" \
       -l "$FACTS" \
       -l "$REWRITE_FACTS" \
-      -l "$PREFLIGHT_FACTS" \
       -l "$ROOT/shen/rules.shen" \
+      "${adapter_args[@]}" \
+      "${legacy_preflight_args[@]}" \
       -l "$ROOT/shen/run-mutation.shen" \
       > "$OUT/.shen-mutation-raw-output.txt"
     capture_logicbox_output "$OUT/.shen-mutation-raw-output.txt" "$OUT/mutation-output.txt"
@@ -222,14 +436,19 @@ case "${1:-help}" in
         echo "Set SHEN_SBCL=/path/to/shen-sbcl and try again." >&2
         exit 1
       fi
-      run_native_preflight "$PREFLIGHT_FACTS" -l "$FACTS"
+      typeset -a adapter_args
+      adapter_args=()
+      if [[ -f "$ADAPTER_FACTS" ]]; then
+        adapter_args=(-l "$ADAPTER_FACTS")
+      fi
       "$SHEN" \
         -l "$FACTS" \
-        -l "$PREFLIGHT_FACTS" \
         -l "$ROOT/shen/rules.shen" \
+        "${adapter_args[@]}" \
         -l "$ROOT/shen/run.shen" \
         > "$OUT/.shen-raw-output.txt"
       capture_logicbox_output "$OUT/.shen-raw-output.txt" "$OUT/shen-output.txt"
+      render_check_report "$CHECK_REPORT" "$OUT/shen-output.txt"
       node "$ROOT/scripts/rewrite-safety.js" recheck-report \
         --patch "$REWRITE_PATCH" \
         --rewrite "$REWRITE" \
@@ -488,7 +707,7 @@ EOF
 
     echo "fuzz-scope-identical:"
     out="$(run_fuzz scope-identical write_scope_same_model)"
-    assert_line "$out" "[plan-status p1 argument-clear-enough]" "identical scopes should be clear" || failures=$((failures + 1))
+    assert_line "$out" "[plan-status p1 ready-for-final-rewrite]" "identical scopes should be clear" || failures=$((failures + 1))
     assert_no_text "$out" "[scope-conflict" "identical scopes should not conflict" || failures=$((failures + 1))
 
     for count in 0 1 2 3 4; do
@@ -499,7 +718,7 @@ EOF
         assert_line "$out" "[plan-status p1 needs-user-input]" "short stage count should be incomplete" || failures=$((failures + 1))
       else
         assert_no_text "$out" "[stage-chain-too-short" "stage count $count should not be too short" || failures=$((failures + 1))
-        assert_line "$out" "[plan-status p1 argument-clear-enough]" "stage count $count should be clear" || failures=$((failures + 1))
+        assert_line "$out" "[plan-status p1 ready-for-final-rewrite]" "stage count $count should be clear" || failures=$((failures + 1))
       fi
     done
 
@@ -510,7 +729,7 @@ EOF
         assert_line "$out" "[missing-context c1 feedback-reliable]" "unknown context should be missing" || failures=$((failures + 1))
       else
         assert_no_text "$out" "[missing-context" "known context should not be missing" || failures=$((failures + 1))
-        assert_line "$out" "[plan-status p1 argument-clear-enough]" "known context should be clear" || failures=$((failures + 1))
+        assert_line "$out" "[plan-status p1 ready-for-final-rewrite]" "known context should be clear" || failures=$((failures + 1))
       fi
     done
 
@@ -521,7 +740,7 @@ EOF
         assert_line "$out" "[conclusion-stronger-than-ground g1 k1 probable certain]" "certain conclusion should outrun probable ground" || failures=$((failures + 1))
       else
         assert_no_text "$out" "[conclusion-stronger-than-ground" "matching modality should not outrun ground" || failures=$((failures + 1))
-        assert_line "$out" "[plan-status p1 argument-clear-enough]" "matching modality should be clear" || failures=$((failures + 1))
+        assert_line "$out" "[plan-status p1 ready-for-final-rewrite]" "matching modality should be clear" || failures=$((failures + 1))
       fi
     done
 
@@ -577,7 +796,19 @@ EOF
     [fact-scope f-example-result local]
   ])
 EOF
-    echo "Created work/draft.txt and a starter work/ai-facts.shen."
+    cat > "$ADAPTER_FACTS" <<'EOF'
+\\ Temporary AI semantic bridge facts for the current run.
+\\ Keep this empty unless a draft/user answer needs a bridge such as
+\\ [implies Y X], [denies Y X], [conflicts Y X], or [undermines Y X].
+
+(set *adapter-facts*
+  [
+  ])
+
+(set *facts*
+  (append (value *facts*) (value *adapter-facts*)))
+EOF
+    echo "Created work/draft.txt, starter work/ai-facts.shen, and empty work/adapter-facts.shen."
     ;;
   show)
     ensure_dirs
@@ -587,8 +818,14 @@ EOF
     echo "AI facts:"
     sed -n '1,220p' "$FACTS"
     echo
+    echo "Adapter facts:"
+    [[ -f "$ADAPTER_FACTS" ]] && sed -n '1,220p' "$ADAPTER_FACTS" || true
+    echo
     echo "Last Shen output:"
     [[ -f "$OUT/shen-output.txt" ]] && sed -n '1,220p' "$OUT/shen-output.txt" || true
+    echo
+    echo "Last check report:"
+    [[ -f "$CHECK_REPORT" ]] && sed -n '1,220p' "$CHECK_REPORT" || true
     echo
     echo "Last mutation output:"
     [[ -f "$OUT/mutation-output.txt" ]] && sed -n '1,220p' "$OUT/mutation-output.txt" || true

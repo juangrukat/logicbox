@@ -1,7 +1,7 @@
 \\ Runs only rewrite mutation checks and prints derived flags between markers.
 
 (define mutation-flags
-  Facts -> (mutation-flags-on Facts))
+  Facts -> (mutation-flags-on (preflight-enriched-facts Facts)))
 
 (define mutation-flags-on
   Facts -> (append (collect-extraction-contract-violations Facts)

@@ -7,18 +7,20 @@
     [term c1 claim]
     [target c1 transitpass]
 
-    [requires-equivalent-benefit transitgap]
-    [mitigation-type transitgap equivalent-benefit-fallback]
-    [denies-equivalent-benefit transitgap]
+    [requires c1 equivalent-transit-benefit]
+    [denies no-separate-benefit equivalent-transit-benefit]
 
-    [no-trip-tracking privacy]
-    [id-scan-verification privacy]
-    [undermines idscan privacypreserved]
+    [prohibits c1 triptracking]
+    [requires c1 idscan]
+    [implies idscan triptracking]
 
     [identical-treatment fairness]
     [requires-equitable-treatment fairness]
+    [value-definition fair same-transit-pass]
+    [identical-treatment same-transit-pass]
+    [conflicts same-transit-pass protectedaccess]
+    [benefit c1 protectedgroups]
     [undermines nontransitfair protectedgroups]
-    [conflicts-with-target nontransitfair transitpass]
 
     [conclusion k1 necessaryconclusion]
     [ground-claim g1 transitpass necessaryconclusion]

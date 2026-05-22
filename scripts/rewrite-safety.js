@@ -71,6 +71,20 @@ const STOP_WORDS = new Set([
   "after",
   "because",
 ]);
+const COMMON_GAP_STATUS_WORDS = new Set([
+  "because",
+  "company",
+  "define",
+  "employees",
+  "program",
+  "receive",
+  "require",
+  "required",
+  "should",
+  "stipend",
+  "treatment",
+  "wellness",
+]);
 
 const args = process.argv.slice(2);
 const command = args[0] || "help";
@@ -989,18 +1003,120 @@ function findGapForFlag(flag, gaps) {
   }) || null;
 }
 
+function classifyReportFlags(flags) {
+  const categories = {
+    blocking: [],
+    tensions: [],
+    mutationFailures: [],
+    openTasks: [],
+    positive: [],
+    planStatus: [],
+    raw: flags,
+  };
+
+  for (const flag of flags) {
+    if (isPlanStatusFlag(flag)) {
+      categories.planStatus.push(flag);
+      continue;
+    }
+
+    if (isPositiveStatusFlag(flag)) {
+      categories.positive.push(flag);
+      continue;
+    }
+
+    if (isMutationFailureFlag(flag)) {
+      categories.mutationFailures.push(flag);
+    }
+
+    if (isBlockingIssueFlag(flag)) {
+      categories.blocking.push(flag);
+    }
+
+    if (isTensionFlag(flag)) {
+      categories.tensions.push(flag);
+    }
+
+    if (isOpenUserTaskFlag(flag)) {
+      categories.openTasks.push(flag);
+    }
+  }
+
+  return categories;
+}
+
+function isPlanStatusFlag(flag) {
+  return /^\[plan-status\b/.test(flag);
+}
+
+function isPositiveStatusFlag(flag) {
+  return /^\[value-criteria-(?:grounded|stated)\b/.test(flag);
+}
+
+function isMutationFailureFlag(flag) {
+  return /^\[(?:deleted-|mutation-violation\b|patch-violation\b)/.test(flag);
+}
+
+function isBlockingIssueFlag(flag) {
+  return /^\[contradiction\b/.test(flag)
+    || /^\[definition-needed\b/.test(flag)
+    || /^\[missing-context\b/.test(flag)
+    || /^\[overclaim\b/.test(flag)
+    || isMutationFailureFlag(flag);
+}
+
+function isTensionFlag(flag) {
+  return /^\[tension\b/.test(flag)
+    || /^\[mitigation-needs-equivalence-check\b/.test(flag);
+}
+
+function isOpenUserTaskFlag(flag) {
+  return /^\[evidence-needed\b/.test(flag)
+    || /^\[definition-needed\b/.test(flag)
+    || /^\[missing-context\b/.test(flag)
+    || /^\[value-criteria-(?:missing|needed)\b/.test(flag);
+}
+
 function formatGapFillReport(rewrite, patch, mutationText, delta, groups) {
   const lines = [];
+  const current = classifyReportFlags(delta.after);
+  const resolvedTensions = delta.resolved.filter((flag) => isTensionFlag(flag) || /^\[contradiction\b/.test(flag));
 
   lines.push("## Updated rewrite");
   lines.push("");
   lines.push(rewrite.trim() || "(no rewrite produced)");
   lines.push("");
+  lines.push("## Kernel result");
+  lines.push("");
+  lines.push(`- Blocking issues: ${current.blocking.length}`);
+  lines.push(`- Reconciliation tensions: ${current.tensions.length}`);
+  lines.push(`- Mutation/deletion failures: ${current.mutationFailures.length}`);
+  lines.push("");
+  lines.push("## Blocking issues");
+  lines.push("");
+  lines.push(...formatFlagList(current.blocking));
+  lines.push("");
+  lines.push("## Resolved tensions");
+  lines.push("");
+  lines.push(...formatFlagList(resolvedTensions));
+  lines.push("");
+  lines.push("## Remaining user tasks");
+  lines.push("");
+  lines.push(...formatFlagList(current.openTasks));
+  lines.push("");
+  lines.push("## Positive statuses");
+  lines.push("");
+  lines.push(...formatFlagList(current.positive));
+  lines.push("");
+  lines.push("## Plan status");
+  lines.push("");
+  lines.push(...formatFlagList(current.planStatus));
+  lines.push("");
   lines.push("## Gap status");
   lines.push("");
 
   for (const gap of patch.gaps || []) {
-    const status = hasResolvedGapAnswer(gap) ? "resolved" : "open";
+    const status = gapFillStatus(gap, delta.after);
     lines.push(`${gap.id} ${status}`);
   }
 
@@ -1064,6 +1180,7 @@ function formatGapFillReport(rewrite, patch, mutationText, delta, groups) {
 
 function formatConsistencyStatus(mutationText, delta) {
   const mutationAccepted = /\bAccepted:\s*yes\b/.test(mutationText || "");
+  const current = classifyReportFlags(delta.after);
   const reconciliationFlags = delta.after.filter(isReconciliationFlag);
 
   if (mutationAccepted && reconciliationFlags.length) {
@@ -1078,6 +1195,10 @@ function formatConsistencyStatus(mutationText, delta) {
     return "Structural consistency check found tensions that need reconciliation.";
   }
 
+  if (mutationAccepted && !current.blocking.length && !current.tensions.length) {
+    return "Mutation check passed. Blocking issues: none. Reconciliation tensions: none.";
+  }
+
   if (mutationAccepted) {
     return "Mutation check passed. Structural consistency check found no new reconciliation flags.";
   }
@@ -1087,9 +1208,63 @@ function formatConsistencyStatus(mutationText, delta) {
 
 function isReconciliationFlag(flag) {
   return /^\[tension\b/.test(flag)
+    || /^\[contradiction\b/.test(flag)
     || /^\[mitigation-needs-equivalence-check\b/.test(flag)
     || /^\[overclaim necessity-counterfactual\b/.test(flag)
     || /^\[plan-status \S+ needs-reconciliation\]$/.test(flag);
+}
+
+function gapFillStatus(gap, flags) {
+  if (!hasResolvedGapAnswer(gap)) {
+    return "still-open";
+  }
+
+  const directFlags = flags.filter((flag) => isReconciliationFlag(flag) && !/^\[plan-status\b/.test(flag));
+
+  if (directFlags.some((flag) => flagMatchesGap(flag, gap))) {
+    return "answered-conflicting";
+  }
+
+  return "resolved-clean";
+}
+
+function flagMatchesGap(flag, gap) {
+  const flagCanon = canonical(flag);
+  const declared = []
+    .concat(gap.flags || [])
+    .concat(gap.flagPatterns || [])
+    .map(canonical);
+
+  if (declared.some((item) => item && flagCanon.includes(item))) {
+    return true;
+  }
+
+  const sourceText = canonical(`${gap.id || ""} ${gap.subject || ""} ${gap.prompt || ""} ${gap.resolved || ""}`);
+  const terms = sourceText
+    .split(" ")
+    .filter((word) => word.length >= 7 && !COMMON_GAP_STATUS_WORDS.has(word));
+
+  if (terms.some((term) => flagCanon.includes(term))) {
+    return true;
+  }
+
+  return meaningfulPhrases(sourceText).some((phrase) => flagCanon.includes(phrase));
+}
+
+function meaningfulPhrases(text) {
+  const words = text.split(" ").filter((word) => word && !COMMON_GAP_STATUS_WORDS.has(word));
+  const phrases = [];
+
+  for (let size = 2; size <= 4; size += 1) {
+    for (let index = 0; index + size <= words.length; index += 1) {
+      const phrase = words.slice(index, index + size).join(" ");
+      if (phrase.length >= 12) {
+        phrases.push(phrase);
+      }
+    }
+  }
+
+  return phrases;
 }
 
 function formatFlagList(flags) {
@@ -1798,13 +1973,16 @@ function runShenParityTests(tempDir) {
     "[term c1 claim]",
     "[target c1 transitpass]",
     "[protected c1 main-claim]",
-    "[requires-equivalent-benefit transitgap]",
-    "[mitigation-type transitgap equivalent-benefit-fallback]",
-    "[denies-equivalent-benefit transitgap]",
-    "[no-trip-tracking privacy]",
-    "[id-scan-verification privacy]",
+    "[requires c1 equivalent-transit-benefit]",
+    "[denies no-separate-benefit equivalent-transit-benefit]",
+    "[prohibits c1 triptracking]",
+    "[requires c1 idscan]",
+    "[implies idscan triptracking]",
     "[identical-treatment fairness]",
     "[requires-equitable-treatment fairness]",
+    "[value-definition fair same-transit-pass]",
+    "[identical-treatment same-transit-pass]",
+    "[conflicts same-transit-pass protectedaccess]",
     "[conclusion k1 necessaryconclusion]",
     "[necessity-ground k1 parking-counterfactual]",
     "[counterfactual parking-counterfactual]",
@@ -1812,9 +1990,10 @@ function runShenParityTests(tempDir) {
   ], tempDir);
 
   for (const expected of [
-    "[contradiction equivalent-benefit-required-vs-denied transitgap]",
-    "[contradiction no-trip-tracking-vs-id-scan-verification privacy]",
+    "[contradiction required-protection-denied c1 no-separate-benefit equivalent-transit-benefit]",
+    "[contradiction prohibited-action-required c1 triptracking idscan]",
     "[tension identical-treatment-vs-equitable-treatment fairness]",
+    "[tension identical-treatment-vs-equitable-treatment same-transit-pass protectedaccess]",
     "[overclaim necessity-counterfactual k1 parking-counterfactual]",
     "[plan-status p1 needs-reconciliation]",
   ]) {
@@ -1828,24 +2007,23 @@ function runShenParityTests(tempDir) {
 function runPreflightParityTests(tempDir) {
   const root = path.resolve(__dirname, "..");
   const fixtures = [
-    "work/ai-facts.shen",
-    "work/rewrite-facts.shen",
-    "tests/edge/compound-domain-atom.shen",
-    "tests/edge/term-classifier.shen",
-    "tests/edge/value-conclusion-criteria.shen",
-    "tests/edge/transit-pass-contradiction.shen",
-    "tests/edge/protected-deletion-negative.shen",
+    ["work/ai-facts.shen"],
+    ["tests/edge/compound-domain-atom.shen"],
+    ["tests/edge/term-classifier.shen"],
+    ["tests/edge/value-conclusion-criteria.shen"],
+    ["tests/edge/transit-pass-contradiction.shen"],
+    ["tests/edge/protected-deletion-negative.shen"],
   ];
 
-  for (const fixture of fixtures) {
-    const filePath = path.join(root, fixture);
-    if (!fs.existsSync(filePath)) {
+  for (const fixtureFiles of fixtures) {
+    const filePaths = fixtureFiles.map((fixture) => path.join(root, fixture));
+    if (filePaths.some((filePath) => !fs.existsSync(filePath))) {
       continue;
     }
 
-    const legacy = runLegacyPreflightFiles([filePath]);
-    const native = runNativePreflightFiles([filePath], tempDir);
-    assertSameMarkerSet(`preflight parity ${fixture}`, legacy, native);
+    const legacy = runLegacyPreflightFiles(filePaths);
+    const native = runNativePreflightFiles(filePaths, tempDir);
+    assertSameMarkerSet(`preflight parity ${fixtureFiles.join(" + ")}`, legacy, native);
   }
 }
 

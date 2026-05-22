@@ -16,7 +16,11 @@ The current draft is in `work/draft.txt`.
 
 The AI-facing facts are in `work/ai-facts.shen`.
 
+Temporary bridge facts are in `work/adapter-facts.shen`.
+
 The derived Shen output is saved to `output/shen-output.txt`.
+
+The sectioned check report is saved to `output/check-report.md`.
 
 Run the rewrite mutation check with:
 
@@ -70,11 +74,12 @@ The normal workflow is small and file-based:
 
 1. Write or paste a paragraph into `work/draft.txt`.
 2. Ask the AI to extract candidate facts into `work/ai-facts.shen`.
-3. Run `./logicbox check`.
-4. Read `output/shen-output.txt`.
-5. Ask the AI to explain only those Shen-derived flags in `output/ai-feedback.md`.
-6. Clarify the paragraph or the intended meaning.
-7. Update `work/ai-facts.shen` and run `./logicbox check` again.
+3. Put temporary bridge facts in `work/adapter-facts.shen` only when the current check needs them.
+4. Run `./logicbox check`.
+5. Read `output/shen-output.txt` for machine-oriented flags and `output/check-report.md` for source/user/adapter separation.
+6. Ask the AI to explain only those Shen-derived flags in `output/ai-feedback.md`.
+7. Clarify the paragraph or the intended meaning.
+8. Update `work/ai-facts.shen` and `work/adapter-facts.shen`, then run `./logicbox check` again.
 
 For a safe prose rewrite:
 
@@ -118,6 +123,54 @@ For each draft, the AI should:
 
 The AI supplies semantic relationships. Shen derives the warnings.
 
+## Temporary Adapter Facts
+
+Use `work/adapter-facts.shen` for per-run semantic bridge facts that help Shen connect the user's wording to general structural rules. Typical adapter facts are generic relationships such as:
+
+```shen
+[adapter-fact a1]
+[adapter-source a1 ai-semantic-bridge]
+[adapter-scope a1 current-run]
+[adapter-status a1 temporary]
+[implies nightlystudylogs privatestudymonitoring]
+```
+
+Adapter facts are loaded into the current Shen check, reported separately in `output/check-report.md`, and should stay out of `shen/rules.shen` unless they are deliberately promoted after neutral wording and regression coverage.
+
+## Report Discipline
+
+`output/shen-output.txt` stays raw: Shen flags and plan statuses only. `output/check-report.md` is the user-facing split:
+
+```text
+Kernel result:
+- Blocking issues
+- Reconciliation tensions
+- Mutation/deletion failures
+
+Open user tasks:
+- evidence still needed
+- optional definitions
+- value confirmation
+
+Positive statuses:
+- value criteria already grounded
+
+Plan status:
+- the current next-state label
+```
+
+Do not treat positive status flags as blocking problems. `value-criteria-grounded` is a positive status. A plan can have no blocking issues, no remaining reconciliation tensions, and still be `needs-user-input` because some evidence or optional clarification remains.
+
+Use report-only open tasks when the user should still supply something but the kernel does not need another structural rule:
+
+```shen
+[open-task evidence g9 "provide evidence for other universities experimenting"]
+[open-task definition limitedtime "define limited advisor time"]
+[open-task value fair "confirm fair criteria"]
+```
+
+`open-task` facts are presentation data. They do not derive contradictions, overclaims, or reconciliation statuses.
+
 ## Compile-Check-Repair
 
 Use LogicBox like a tiny compiler while translating prose:
@@ -159,6 +212,8 @@ In `rewrite_with_user_facts`, allowed patch operations are `keep`, `rephrase`, `
 
 User-supplied facts are allowed mutations, but they are not automatically compatible with the argument. After gap fills, LogicBox reruns Shen and can assign `[plan-status P needs-reconciliation]` when new user facts conflict with claimed benefits, uniformity rules, subgroup treatment, fallback equivalence, or necessity claims.
 
+Gap fills are reported as `resolved-clean`, `answered-conflicting`, or `still-open`. A user answer can be accepted for provenance while still being `answered-conflicting` if Shen derives a contradiction or tension from the structured facts it introduces.
+
 Do not bury consistency-relevant user answers only inside `[definition ... "..."]` strings. Extract structured facts such as:
 
 ```shen
@@ -167,12 +222,12 @@ Do not bury consistency-relevant user answers only inside `[definition ... "..."
 [policy-condition c1 slackrule]
 [undermines slackrule deep-work]
 [policy-rule hrguides uniform-rules]
-[policy-rule hrguides no-manager-exceptions]
+[prohibits hrguides exceptions]
 [exception-rule newoffice]
 [exception-to newoffice c1]
 [group-rule newoffice new-employees]
 [conflicts-with-target newoffice threeday]
-[mitigation-type alternatives office-fallback]
+[needs-equivalence-check alternatives]
 [equivalence-status alternatives unknown]
 [necessity-ground k3 quitrisk]
 [evidence-status quitrisk unknown]
@@ -182,13 +237,13 @@ The rewrite preflight blocks new numbers, thresholds, percentages, deadlines, na
 
 Stage 1 rewrite-safety migration keeps `scripts/rewrite-safety.js` as a wrapper while Shen/SBCL derives parity safety flags through `shen/run-rewrite-safety.shen`. The parity suite compares legacy JS behavior with Shen-derived acceptance for invented thresholds, named programs, user-supplied insertions, deleted protected claims, preserved unresolved protected claims, and transit-pass gap-fill contradictions.
 
-Stage 2 preflight migration moves compound-atom, decomposition, and value-criteria marker classification into Shen/SBCL through `shen/run-preflight.shen`. `./logicbox preflight`, `./logicbox check`, and `./logicbox mutation` use Shen-native preflight by default; pass `--legacy-js-preflight` to temporarily compare against `scripts/preflight-facts.js`.
+Stage 2 preflight migration moves compound-atom, decomposition, and value-criteria marker classification into Shen/SBCL. `./logicbox check` and `./logicbox mutation` enrich facts inside the same Shen run by default; `./logicbox preflight` remains available for inspecting marker facts, and `--legacy-js-preflight` temporarily compares against `scripts/preflight-facts.js`.
 
 Stage 3 rewrite-safety migration makes Shen/SBCL the default source of truth for rewrite mutation acceptance and protected-claim deletion checks through `shen/run-rewrite-safety.shen`. `scripts/rewrite-safety.js` remains as JSON/file glue, patch application, report formatting, repair plumbing, and a temporary parity harness. Pass `--legacy-js-rewrite-safety` to `./logicbox rewrite-preflight`, `./logicbox rewrite`, or `./logicbox rewrite-mutation` only when comparing against the old JavaScript checker.
 
 Structure-only rewrites must also preserve protected claims. A rewrite may mark a protected claim unresolved, but it may not replace it with `[undefined: fill missing information]` or omit it. Protected roles include main recommendations, core/scope conditions, objections, concessions, rebuttals, safeguards, mitigations, exceptions, equity guardrails, and value conclusions.
 
-Structured consistency helper facts are not manual notes. Shen promotes facts such as `[undermines idscan privacypreserved]`, `[undermines nontransitfair protectedgroups]`, and `[conflicts-with-target nontransitfair transitpass]` into formal contradiction or tension flags, and any contradiction, tension, or necessity overclaim forces `needs-reconciliation`.
+Structured consistency helper facts are not manual notes. Shen consumes generic bridge facts such as `[requires C X]`, `[denies Y X]`, `[prohibits C X]`, `[implies Y X]`, `[conflicts Y X]`, and `[undermines Y X]` to derive formal contradiction or tension flags. These bridge facts usually belong in `work/adapter-facts.shen`, not in the permanent rule kernel.
 
 Use protected-role facts in symbolic mutation checks:
 
@@ -283,7 +338,7 @@ Preferred style:
 
 For policy-style arguments, use primitive facts such as `term`, `action`, `target`, `agent`, `location`, `timeframe`, `modality`, `reason-type`, `outcome`, `objects-to`, `mitigates`, `exempts`, `analogizes-from`, and `supports`. If a draft phrase cannot be mapped cleanly, represent it as unknown plus a definition instead of inventing a semantic-rich atom.
 
-The command-line `check` and `mutation` paths run `scripts/preflight-facts.js` before Shen. That script appends marker facts for suspicious compact atoms, action-like atoms that should be decomposed, and value terms that need criteria. Shen then reports extraction and classification diagnostics in the same file-based workflow.
+The command-line `check` and `mutation` paths let Shen append marker facts for suspicious compact atoms, action-like atoms that should be decomposed, and value terms that need criteria inside the same default Shen run. `scripts/preflight-facts.js` is only a temporary parity path behind the legacy flag.
 
 Typed claim nodes may carry scope directly:
 
@@ -299,9 +354,13 @@ Those fields count as scoped structure. Use `scope-status` values such as `unkno
 
 ## Reading The Output
 
-`[plan-status p1 argument-clear-enough]` means the current plan has no blocking structural flags. It does not mean the argument is true.
+Read the sectioned report first. It separates blocking issues from open user tasks, positive statuses, and the final plan status. Read `output/shen-output.txt` when you need the raw Shen result.
 
-`[plan-status p1 needs-user-input]` means at least one blocking issue remains. `[plan-status p1 needs-evidence]` means a remaining issue needs outside support or a narrower claim.
+`[plan-status p1 ready-for-final-rewrite]` means the current plan has no blocking structural flags. It does not mean the argument is true.
+
+`[plan-status p1 translation-error]` means the symbolic extraction itself needs repair before the argument should be judged.
+
+`[plan-status p1 needs-user-input]` means definitions, context, mechanisms, scope, or similar structural information is still missing. `[plan-status p1 awaiting-value-confirmation]` means only value criteria need confirmation. `[plan-status p1 needs-evidence]` means a remaining issue needs outside support or a narrower claim.
 
 `[plan-status p1 needs-reconciliation]` means translation and mutation provenance may be clean, but accepted facts introduce a tension with the argument's structure. This status outranks ordinary `needs-user-input`; mutation pass does not imply argument pass.
 
