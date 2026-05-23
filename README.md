@@ -133,28 +133,27 @@ work/adapter-facts.shen     temporary semantic bridge facts
 work/rewrite-patch.json     machine-checkable rewrite patch
 work/rewrite.md             applied rewrite
 work/rewrite-facts.shen     rewrite-derived symbolic facts
-output/shen-output.txt      raw Shen flags
-output/check-report.md      sectioned human-facing check report
+output/check-report.md      source-facing report to read first
+output/shen-output.txt      expert/audit raw Shen flags
 output/rewrite-report.md    safe rewrite report
 output/mutation-output.txt  rewrite mutation output
-output/ai-feedback.md       AI explanation of Shen-derived flags
 ```
 
 ## Quick Start
 
-Put a draft in `work/draft.txt`, extract candidate facts into `work/ai-facts.shen`, then run:
+Put a draft in `work/draft.txt`, extract candidate facts into `work/ai-facts.shen`, then run the streamlined review:
 
 ```sh
-./logicbox check
+./logicbox review
 ```
 
-Read the sectioned report first:
+Read this first:
 
 ```text
 output/check-report.md
 ```
 
-Read the raw Shen output when you need machine-oriented detail:
+Use the raw Shen output only when you need machine-oriented audit detail:
 
 ```text
 output/shen-output.txt
@@ -169,12 +168,20 @@ Start a new claim from the command line:
 Then have the AI edit `work/ai-facts.shen` and run:
 
 ```sh
-./logicbox check
+./logicbox review
 ```
 
 ## Command Overview
 
-### Check the current argument
+### Review the current argument
+
+```sh
+./logicbox review
+```
+
+Runs the current Shen check and shows the source-facing report. This is the default human workflow: diagnostics, next action, source frames, file map, and expert appendices live together in `output/check-report.md`.
+
+### Check the current argument, expert mode
 
 ```sh
 ./logicbox check
@@ -236,17 +243,55 @@ Run subsets:
 ./logicbox fuzz
 ```
 
+## Schema Gate & Pipeline
+
+Since v2.3.0, LogicBox validates facts through a typed schema gate before the kernel runs.
+
+**Pipeline:**
+```
+raw facts → normalization → schema typecheck → accepted core facts → kernel → report
+```
+
+Hard schema errors (wrong arity, bad enum, unknown predicate, ID-class mismatch, precomputed flags, namespace leakage) block the kernel with `translation-error`.
+
+**New commands:**
+
+```sh
+./logicbox schema-test        # regression suite for norm, typecheck, provenance
+./logicbox schema-contract    # machine-readable prompt contract from schema registry
+```
+
+**New files:**
+
+```text
+shen/fact-schema.shen         schema registry (predicates, types, enums)
+shen/fact-normalize.shen      normalization pass
+shen/fact-typecheck.shen      type checker
+shen/fact-provenance.shen     provenance tracking
+docs/fact-schema.md           schema gate documentation
+docs/prompt-contract.md       LLM extraction prompt contract
+```
+
+Only registered predicates pass the gate. Common errors caught:
+
+- `[condition c2 ...]` → not a predicate (use `[claim c2 ...]`)
+- `[value-conclusion v1 ...]` → not a predicate
+- `[term o1 objection]` → not a valid TermKind (use `entity`)
+- `[term r1 rebuttal]` → not a valid TermKind (use `reason`)
+- `[sufficiency r1 stated]` → not a valid KnowledgeState (use `shown`)
+- `[protected r1 rebuttal]` → not a valid ProtectedRole (use `safeguard`)
+
 ## Normal User Workflow
 
 1. Write or paste a paragraph into `work/draft.txt`.
 2. Ask the AI to extract candidate facts into `work/ai-facts.shen`.
 3. Put temporary bridge facts in `work/adapter-facts.shen` only when the current check needs them.
-4. Run `./logicbox check`.
+4. Run `./logicbox review`.
 5. Read `output/check-report.md` before reading the raw Shen output.
-6. Ask the AI to explain only the flags Shen actually derived.
+6. Ask the AI to explain only the diagnostics Shen actually derived.
 7. Clarify the paragraph or the intended meaning.
 8. Update `work/ai-facts.shen` and `work/adapter-facts.shen`.
-9. Run `./logicbox check` again.
+9. Run `./logicbox review` again.
 
 The human remains the authority on meaning.
 
@@ -255,7 +300,7 @@ The human remains the authority on meaning.
 Useful prompts while working locally:
 
 ```text
-Read work/draft.txt, extract a reasoning plan into work/ai-facts.shen, then run ./logicbox check and explain only Shen's output.
+Read work/draft.txt, extract a reasoning plan into work/ai-facts.shen, then run ./logicbox review and explain the source-facing diagnostics.
 ```
 
 ```text
@@ -263,7 +308,7 @@ Use Shen's flags to ask me one or two clarification questions. Do not rewrite ye
 ```
 
 ```text
-Update work/ai-facts.shen using my clarification and rerun the check.
+Update work/ai-facts.shen using my clarification and rerun ./logicbox review.
 ```
 
 ```text
@@ -299,8 +344,8 @@ For each draft, the AI should:
 7. Add simple scopes for plan facts.
 8. Mark unclear terms or context as `unknown` instead of guessing.
 9. Add semantic helper facts when useful, such as `[similar A B]`, `[abstract M]`, or `[supports p1 k1]`.
-10. Run `./logicbox check`.
-11. Explain only the flags Shen actually derives.
+10. Run `./logicbox review`.
+11. Explain only the source-facing diagnostics Shen actually derives.
 
 The AI supplies semantic relationships. Shen derives the warnings.
 
@@ -311,7 +356,7 @@ Use LogicBox like a tiny compiler while translating prose:
 1. Draft candidate facts in `work/ai-facts.shen`.
 2. Run `./logicbox preflight`.
 3. Repair compact atoms and obvious decomposition errors.
-4. Run `./logicbox check`.
+4. Run `./logicbox review`.
 5. Repair translation errors such as `extraction-contract-violation`, `decomposition-needed`, malformed fact shape, and missing definitions already supplied by the prose.
 6. Leave real argument diagnostics in place, including `value-criteria-needed`, `missing-context`, `mitigation-needs-sufficiency-check`, `mitigation-needs-equivalence-check`, `claim-without-ground`, `analogy-needs-comparability`, `unclear-scope`, reconciliation tensions, and evidence gaps.
 7. Explain only the remaining Shen-derived flags.
@@ -323,10 +368,16 @@ Default mode is structure-only: no internet and no factual truth checking. Evide
 Read `output/check-report.md` first. It separates:
 
 ```text
-Kernel result:
+Read first:
 - Blocking issues
 - Reconciliation tensions
 - Mutation/deletion failures
+
+Next action:
+- the likely next move
+
+Diagnostics:
+- source-facing explanation of derived flags
 
 Open user tasks:
 - evidence still needed
@@ -338,6 +389,14 @@ Positive statuses:
 
 Plan status:
 - the current next-state label
+
+Source frames:
+- source-facing labels and definitions
+
+Expert appendices:
+- raw Shen flags
+- raw source facts
+- temporary adapter facts
 ```
 
 Do not treat positive status flags as blocking problems. `value-criteria-grounded` is a positive status. A plan can have no blocking issues, no remaining reconciliation tensions, and still be `needs-user-input` because evidence or optional clarification remains.
@@ -1044,7 +1103,7 @@ Avoid rule creep. Domain-specific examples are useful as tests, but the reusable
 
 ## Troubleshooting
 
-If `./logicbox check` returns `[]`, there may be no `[plan ...]` fact in the current model. Older fixtures without a plan can still produce ordinary flags, but only plans produce `[clear-enough ...]` or `[plan-incomplete ...]`.
+If `./logicbox review` shows only raw `[]` output, there may be no `[plan ...]` fact in the current model. Older fixtures without a plan can still produce ordinary flags, but only plans produce plan statuses.
 
 If Shen reports a syntax error, inspect `work/ai-facts.shen` for mismatched brackets. Facts use Shen lists like `[claim c1 causal source target]`, not Lisp parentheses.
 
@@ -1058,7 +1117,7 @@ If a rewrite is rejected, check for unlabeled additions, invented numbers, inven
 
 Before uploading or sharing the folder:
 
-1. Run `./logicbox check`.
+1. Run `./logicbox review`.
 2. Run `./logicbox mutation`.
 3. Run `./logicbox stress`.
 4. Run `./logicbox gold`.
@@ -1082,12 +1141,13 @@ work/
 output/
 ```
 
-Generated raw Shen logs are ignored by `.gitignore`; the useful human-readable outputs are kept in:
+Generated raw Shen logs are ignored by `.gitignore`; the useful outputs are:
 
 ```text
+output/check-report.md
 output/shen-output.txt
 output/mutation-output.txt
-output/ai-feedback.md
+output/rewrite-report.md
 ```
 
 ## Files
@@ -1119,7 +1179,6 @@ tests/
 output/
   shen-output.txt
   check-report.md
-  ai-feedback.md
   mutation-output.txt
   rewrite-report.md
 ```

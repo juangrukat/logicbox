@@ -14,6 +14,12 @@ PREFLIGHT_FACTS="$OUT/.preflight-facts.shen"
 REWRITE_REPORT="$OUT/rewrite-report.md"
 SHEN_BEFORE_REWRITE="$OUT/shen-before-rewrite.txt"
 CHECK_REPORT="$OUT/check-report.md"
+SCHEMA_ARGS=(
+  -l "$ROOT/shen/fact-schema.shen"
+  -l "$ROOT/shen/fact-normalize.shen"
+  -l "$ROOT/shen/fact-provenance.shen"
+  -l "$ROOT/shen/fact-typecheck.shen"
+)
 
 usage() {
   cat <<'EOF'
@@ -21,6 +27,7 @@ LogicBox
 
 Usage:
   ./logicbox preflight
+  ./logicbox review
   ./logicbox check
   ./logicbox mutation
   ./logicbox rewrite-preflight
@@ -28,6 +35,9 @@ Usage:
   ./logicbox rewrite-mutation
   ./logicbox recheck-report
   ./logicbox rewrite-test
+  ./logicbox report-smoke
+  ./logicbox schema-contract
+  ./logicbox schema-test
   ./logicbox test
   ./logicbox stress
   ./logicbox gold
@@ -40,14 +50,14 @@ Workflow:
   1. Put prose in work/draft.txt.
   2. Put AI-proposed symbolic facts in work/ai-facts.shen.
   3. Put temporary semantic bridge facts in work/adapter-facts.shen when needed.
-  4. Run ./logicbox preflight or ./logicbox check.
-  5. Read output/shen-output.txt and output/check-report.md.
+  4. Run ./logicbox review for the streamlined report.
+  5. Read output/check-report.md first; output/shen-output.txt is the expert/audit view.
 
 For safe prose rewrites, put a rewrite patch in work/rewrite-patch.json
 and run ./logicbox rewrite. For symbolic rewrite checks, put rewrite-derived
 facts in work/rewrite-facts.shen and run ./logicbox mutation.
 
-The checker is Shen. The wrapper only runs Shen and saves output.
+The checker is Shen. The wrapper runs Shen, keeps raw output for audit, and renders a source-facing report.
 EOF
 }
 
@@ -71,6 +81,7 @@ run_check_model() {
   local out="$3"
   "$SHEN" \
     -l "$model" \
+    "${SCHEMA_ARGS[@]}" \
     -l "$ROOT/shen/rules.shen" \
     -l "$ROOT/shen/run.shen" \
     > "$raw"
@@ -143,7 +154,8 @@ render_flag_category() {
       isValueOpen = $0 ~ /^\[value-criteria-missing / || $0 ~ /^\[value-criteria-needed /
       isContext = $0 ~ /^\[missing-context /
       isDefinition = $0 ~ /^\[definition-needed /
-      isBlocking = $0 ~ /^\[contradiction / ||
+      isBlocking = $0 ~ /^\[fact-type-error / ||
+        $0 ~ /^\[contradiction / ||
         isDefinition ||
         isContext ||
         $0 ~ /^\[overclaim / ||
@@ -199,6 +211,290 @@ render_open_user_tasks() {
   '
 }
 
+render_next_action() {
+  local flags="$1"
+  if [[ ! -f "$flags" ]]; then
+    echo "- Run ./logicbox review after adding candidate facts."
+    return
+  fi
+  awk '
+    /^\[plan-status / {
+      if ($0 ~ / translation-error\]$/) status = "translation-error"
+      else if ($0 ~ / needs-reconciliation\]$/) status = "needs-reconciliation"
+      else if ($0 ~ / needs-evidence\]$/) status = "needs-evidence"
+      else if ($0 ~ / awaiting-value-confirmation\]$/) status = "awaiting-value-confirmation"
+      else if ($0 ~ / needs-user-input\]$/) status = "needs-user-input"
+      else if ($0 ~ / ready-for-final-rewrite\]$/) status = "ready-for-final-rewrite"
+    }
+    /^\[fact-type-error / || /^\[extraction-contract-violation / || /^\[decomposition-needed / { translation = 1 }
+    /^\[contradiction / || /^\[tension / || /^\[mitigation-needs-equivalence-check / { reconciliation = 1 }
+    /^\[missing-context / || /^\[definition-needed / || /^\[missing-mechanism / ||
+      /^\[unclear-scope / || /^\[unclear-modality / || /^\[claim-without-ground / { user = 1 }
+    /^\[evidence-needed / { evidence = 1 }
+    END {
+      if (translation || status == "translation-error") {
+        print "- Repair the translation/fact shape before judging the argument."
+      } else if (reconciliation || status == "needs-reconciliation") {
+        print "- Reconcile the accepted commitments that now conflict or pull against each other."
+      } else if (evidence || status == "needs-evidence") {
+        print "- Decide whether to supply evidence, narrow the claim, or mark the evidence gap."
+      } else if (user || status == "needs-user-input" || status == "awaiting-value-confirmation") {
+        print "- Ask for the missing definition, context, mechanism, scope, support, or value criterion."
+      } else if (status == "ready-for-final-rewrite") {
+        print "- No blocking structural diagnostics. A conservative rewrite can be prepared if desired."
+      } else {
+        print "- Inspect the diagnostics below, then update facts or ask one focused clarification question."
+      }
+    }
+  ' "$flags"
+}
+
+render_file_map() {
+  echo "- Read first: output/check-report.md"
+  echo "- Human draft: work/draft.txt"
+  echo "- AI translation: work/ai-facts.shen"
+  echo "- Temporary per-run logic: work/adapter-facts.shen"
+  echo "- Expert raw flags: output/shen-output.txt"
+  echo "- Rewrite path, only when needed: work/rewrite-patch.json -> work/rewrite.md -> output/rewrite-report.md"
+}
+
+render_source_frames() {
+  local -a fact_files
+  fact_files=()
+  [[ -f "$FACTS" ]] && fact_files+=("$FACTS")
+  [[ -f "$ADAPTER_FACTS" ]] && fact_files+=("$ADAPTER_FACTS")
+
+  if [[ ${#fact_files[@]} -eq 0 ]]; then
+    echo "- none"
+    return
+  fi
+
+  awk '
+    function strip_close(value) {
+      sub(/\]$/, "", value)
+      return value
+    }
+    function remember(id) {
+      if (!(id in seen)) {
+        seen[id] = 1
+        order[++count] = id
+      }
+    }
+    function quoted_text(line) {
+      if (match(line, /"[^"]*"/)) {
+        return substr(line, RSTART + 1, RLENGTH - 2)
+      }
+      return ""
+    }
+    /^[[:space:]]*\[definition[[:space:]]/ {
+      id = $2
+      text = quoted_text($0)
+      if (text != "") {
+        definition[id] = text
+        remember(id)
+      }
+    }
+    /^[[:space:]]*\[source-text[[:space:]]/ {
+      id = $2
+      text = quoted_text($0)
+      if (text != "") {
+        sourceText[id] = text
+        remember(id)
+      }
+    }
+    /^[[:space:]]*\[source-span[[:space:]]/ {
+      id = $2
+      end = strip_close($5)
+      span[id] = $3 ":" $4 "-" end
+      remember(id)
+    }
+    /^[[:space:]]*\[protected[[:space:]]/ {
+      id = $2
+      role[id] = strip_close($3)
+      remember(id)
+    }
+    /^[[:space:]]*\[term[[:space:]]/ {
+      id = $2
+      termKind[id] = strip_close($3)
+      remember(id)
+    }
+    /^[[:space:]]*\[claim[[:space:]]/ {
+      id = $2
+      shape[id] = strip_close($3) " claim"
+      remember(id)
+    }
+    /^[[:space:]]*\[ground-claim[[:space:]]/ {
+      id = $2
+      shape[id] = "ground claim"
+      remember(id)
+    }
+    /^[[:space:]]*\[conclusion[[:space:]]/ {
+      id = $2
+      shape[id] = "conclusion"
+      remember(id)
+    }
+    /^[[:space:]]*\[value-conclusion[[:space:]]/ {
+      id = $2
+      shape[id] = "value conclusion"
+      text = quoted_text($0)
+      if (text != "") definition[id] = text
+      remember(id)
+    }
+    END {
+      for (i = 1; i <= count; i++) {
+        id = order[i]
+        text = sourceText[id] != "" ? sourceText[id] : definition[id]
+        if (text == "" && role[id] == "" && shape[id] == "" && termKind[id] == "") {
+          continue
+        }
+        label = id
+        meta = ""
+        if (role[id] != "") meta = meta (meta == "" ? "" : ", ") role[id]
+        if (shape[id] != "") meta = meta (meta == "" ? "" : ", ") shape[id]
+        else if (termKind[id] != "") meta = meta (meta == "" ? "" : ", ") termKind[id]
+        if (span[id] != "") meta = meta (meta == "" ? "" : ", ") span[id]
+        if (meta != "") label = label " (" meta ")"
+        if (text != "") print "- " label ": " text
+        else print "- " label
+        printed++
+      }
+      if (printed == 0) print "- none"
+    }
+  ' "${fact_files[@]}"
+}
+
+render_diagnostic_frames() {
+  local flags="$1"
+  local -a fact_files
+  fact_files=()
+  [[ -f "$FACTS" ]] && fact_files+=("$FACTS")
+  [[ -f "$ADAPTER_FACTS" ]] && fact_files+=("$ADAPTER_FACTS")
+
+  if [[ ! -f "$flags" ]]; then
+    echo "- No diagnostics yet."
+    return
+  fi
+
+  awk -v flagfile="$flags" '
+    function strip_close(value) {
+      sub(/\]$/, "", value)
+      return value
+    }
+    function quoted_text(line) {
+      if (match(line, /"[^"]*"/)) {
+        return substr(line, RSTART + 1, RLENGTH - 2)
+      }
+      return ""
+    }
+    function label(id) {
+      if (id in sourceText) return "\"" sourceText[id] "\""
+      if (id in definition) return "\"" definition[id] "\""
+      return id
+    }
+    function loc(id) {
+      if (id in span) return " Source: " span[id] "."
+      return ""
+    }
+    function add(title, body) {
+      print "- " title ": " body
+      printed++
+    }
+    FILENAME != flagfile && /^[[:space:]]*\[definition[[:space:]]/ {
+      id = $2
+      text = quoted_text($0)
+      if (text != "") definition[id] = text
+      next
+    }
+    FILENAME != flagfile && /^[[:space:]]*\[source-text[[:space:]]/ {
+      id = $2
+      text = quoted_text($0)
+      if (text != "") sourceText[id] = text
+      next
+    }
+    FILENAME != flagfile && /^[[:space:]]*\[source-span[[:space:]]/ {
+      id = $2
+      end = strip_close($5)
+      span[id] = $3 ":" $4 "-" end
+      next
+    }
+    FILENAME != flagfile {
+      next
+    }
+    FILENAME == flagfile {
+      raw = $0
+      if (raw == "" || raw == "[]") next
+      line = raw
+      sub(/^\[/, "", line)
+      sub(/\]$/, "", line)
+      n = split(line, parts, /[[:space:]]+/)
+      head = parts[1]
+
+      if (head == "plan-status" || head == "value-criteria-grounded" || head == "value-criteria-stated") next
+
+      if (head == "fact-type-error") {
+        add("Fact schema error", raw " Repair the fact shape, type, namespace, or schema version before judging the argument.")
+      } else if (head == "fact-warning") {
+        add("Fact schema warning", raw)
+      } else if (head == "fact-suggestion") {
+        add("Fact schema suggestion", raw)
+      } else if (head == "fact-normalization") {
+        add("Fact normalization", raw)
+      } else if (head == "extraction-contract-violation") {
+        add("Translation repair", parts[2] " is packed into a symbol Shen cannot inspect. Next: decompose it into typed facts." loc(parts[2]))
+      } else if (head == "decomposition-needed") {
+        add("Decomposition needed", parts[2] " should be represented as smaller predicates, not one compact term." loc(parts[2]))
+      } else if (head == "definition-needed") {
+        add("Definition needed", label(parts[2]) " needs an operational definition before the structure is clear." loc(parts[2]))
+      } else if (head == "value-criteria-missing" || head == "value-criteria-needed") {
+        add("Value criteria needed", label(parts[2]) " needs explicit criteria before the value judgment can be checked." loc(parts[2]))
+      } else if (head == "missing-mechanism") {
+        add("Mechanism missing", label(parts[2]) " needs a represented causal or operational bridge." loc(parts[2]))
+      } else if (head == "mechanism-needs-causal-path") {
+        add("Causal path needed", label(parts[2]) " needs intermediate source, process, effect, and outcome structure." loc(parts[2]))
+      } else if (head == "missing-context") {
+        add("Context missing", label(parts[2]) " relies on " parts[3] ", but that context is not known yet." loc(parts[2]))
+      } else if (head == "claim-without-ground") {
+        add("Support missing", label(parts[2]) " has no represented ground or support link." loc(parts[2]))
+      } else if (head == "conclusion-stronger-than-ground") {
+        add("Conclusion too strong", label(parts[3]) " is marked " parts[5] " while its ground is only " parts[4] ".")
+      } else if (head == "conclusion-stronger-than-premises") {
+        add("Conclusion too strong", label(parts[3]) " is marked " parts[5] " while a premise is only " parts[4] ".")
+      } else if (head == "unclear-scope") {
+        add("Scope unclear", label(parts[2]) " needs a local, section, document, global, or typed scope." loc(parts[2]))
+      } else if (head == "unclear-modality") {
+        add("Modality unclear", label(parts[2]) " needs a strength such as possible, probable, certain, recommendation, or requirement." loc(parts[2]))
+      } else if (head == "stage-chain-too-short") {
+        add("Mechanism stages too short", label(parts[2]) " has " parts[3] " stages; Shen expected at least " parts[4] ".")
+      } else if (head == "missing-stage-bridge") {
+        add("Stage bridge missing", label(parts[2]) " needs a bridge between " parts[3] " and " parts[4] ".")
+      } else if (head == "scope-conflict") {
+        add("Scope conflict", parts[2] " is " parts[4] " while " parts[3] " is " parts[5] ".")
+      } else if (head == "context-conflict") {
+        add("Context conflict", parts[2] " conflicts with " parts[3] ".")
+      } else if (head == "contradiction") {
+        add("Contradiction", raw)
+      } else if (head == "tension") {
+        add("Reconciliation tension", raw)
+      } else if (head ~ /^deleted-/) {
+        add("Rewrite deletion", raw " Restore the protected source commitment or mark it unresolved without removing it.")
+      } else if (head ~ /-mutation$/) {
+        add("Rewrite drift", raw " The rewrite changed a protected structural commitment.")
+      } else if (head == "patch-violation" || head == "mutation-violation") {
+        add("Rewrite safety violation", raw)
+      } else if (head == "evidence-needed") {
+        add("Evidence needed", parts[2] " needs support for " parts[3] ".")
+      } else if (head == "precomputed-flag") {
+        add("Kernel boundary violation", raw " Remove this derived result from input facts; Shen must derive it.")
+      } else {
+        add("Diagnostic", raw)
+      }
+    }
+    END {
+      if (printed == 0) print "- No blocking diagnostics in the default view."
+    }
+  ' "${fact_files[@]}" "$flags"
+}
+
 render_kernel_summary() {
   local flags="$1"
   if [[ ! -f "$flags" ]]; then
@@ -209,7 +505,8 @@ render_kernel_summary() {
   fi
   awk '
     /^\[/ {
-      if ($0 ~ /^\[contradiction / ||
+      if ($0 ~ /^\[fact-type-error / ||
+          $0 ~ /^\[contradiction / ||
           $0 ~ /^\[definition-needed / ||
           $0 ~ /^\[missing-context / ||
           $0 ~ /^\[overclaim / ||
@@ -231,17 +528,17 @@ render_check_report() {
   local dest="$1"
   local flags="$2"
   {
-    echo "## Kernel result"
+    echo "## Read first"
     echo
     render_kernel_summary "$flags"
     echo
-    echo "## Blocking issues"
+    echo "## Next action"
     echo
-    render_flag_category "$flags" blocking
+    render_next_action "$flags"
     echo
-    echo "## Reconciliation tensions"
+    echo "## Diagnostics"
     echo
-    render_flag_category "$flags" tensions
+    render_diagnostic_frames "$flags"
     echo
     echo "## Open user tasks"
     echo
@@ -255,26 +552,34 @@ render_check_report() {
     echo
     render_flag_category "$flags" status
     echo
-    echo "## Source facts extracted from draft"
+    echo "## Source frames"
     echo
-    render_fact_lines "$FACTS" source
+    render_source_frames
     echo
-    echo "## User-supplied facts from gap answers"
+    echo "## File map"
     echo
-    render_fact_lines "$FACTS" user
+    render_file_map
     echo
-    echo "## AI-generated adapter facts"
+    echo "## Expert appendix: raw Shen flags"
     echo
-    if [[ -f "$ADAPTER_FACTS" ]]; then
-      render_fact_lines "$ADAPTER_FACTS" adapter
+    if [[ -s "$flags" ]]; then
+      sed 's/^/- /' "$flags"
     else
       echo "- none"
     fi
     echo
-    echo "## Shen-derived flags"
+    echo "## Expert appendix: source facts"
     echo
-    if [[ -s "$flags" ]]; then
-      sed 's/^/- /' "$flags"
+    render_fact_lines "$FACTS" source
+    echo
+    echo "## Expert appendix: user-supplied facts from gap answers"
+    echo
+    render_fact_lines "$FACTS" user
+    echo
+    echo "## Expert appendix: temporary adapter facts"
+    echo
+    if [[ -f "$ADAPTER_FACTS" ]]; then
+      render_fact_lines "$ADAPTER_FACTS" adapter
     else
       echo "- none"
     fi
@@ -285,7 +590,7 @@ assert_line() {
   local file="$1"
   local expected="$2"
   local label="$3"
-  if ! grep -Fxq "$expected" "$file"; then
+  if ! grep -Fxq -- "$expected" "$file"; then
     echo "FAIL $label"
     echo "  expected line: $expected"
     echo "  actual output:"
@@ -298,7 +603,7 @@ assert_no_text() {
   local file="$1"
   local forbidden="$2"
   local label="$3"
-  if grep -Fq "$forbidden" "$file"; then
+  if grep -Fq -- "$forbidden" "$file"; then
     echo "FAIL $label"
     echo "  forbidden text: $forbidden"
     echo "  actual output:"
@@ -308,6 +613,12 @@ assert_no_text() {
 }
 
 case "${1:-help}" in
+  review)
+    ensure_dirs
+    shift || true
+    "$0" check "$@" > "$OUT/.shen-review-raw-output.txt"
+    cat "$CHECK_REPORT"
+    ;;
   preflight)
     ensure_dirs
     if ! use_legacy_js_preflight "$@" && [[ ! -x "$SHEN" ]]; then
@@ -351,6 +662,7 @@ case "${1:-help}" in
     fi
     "$SHEN" \
       -l "$FACTS" \
+      "${SCHEMA_ARGS[@]}" \
       -l "$ROOT/shen/rules.shen" \
       "${adapter_args[@]}" \
       "${legacy_preflight_args[@]}" \
@@ -385,6 +697,7 @@ case "${1:-help}" in
     "$SHEN" \
       -l "$FACTS" \
       -l "$REWRITE_FACTS" \
+      "${SCHEMA_ARGS[@]}" \
       -l "$ROOT/shen/rules.shen" \
       "${adapter_args[@]}" \
       "${legacy_preflight_args[@]}" \
@@ -443,6 +756,7 @@ case "${1:-help}" in
       fi
       "$SHEN" \
         -l "$FACTS" \
+        "${SCHEMA_ARGS[@]}" \
         -l "$ROOT/shen/rules.shen" \
         "${adapter_args[@]}" \
         -l "$ROOT/shen/run.shen" \
@@ -482,12 +796,69 @@ case "${1:-help}" in
     ensure_dirs
     node "$ROOT/scripts/rewrite-safety.js" test
     ;;
+  report-smoke)
+    ensure_dirs
+    tmpdir="$(mktemp -d /tmp/logicbox-report.XXXXXX)"
+    trap 'rm -rf "$tmpdir"' EXIT
+    FACTS="$tmpdir/facts.shen"
+    ADAPTER_FACTS="$tmpdir/adapter-facts.shen"
+    flags="$tmpdir/flags.txt"
+    report="$tmpdir/check-report.md"
+    cat > "$FACTS" <<'EOF'
+(set *facts*
+  [
+    [plan p1]
+    [plan-source p1 draft]
+    [term c1 claim]
+    [source-text c1 "The draft makes a claim."]
+    [source-span c1 draft 1 1]
+    [definition c1 "The draft makes a claim."]
+  ])
+EOF
+    cat > "$ADAPTER_FACTS" <<'EOF'
+(set *adapter-facts*
+  [
+  ])
+EOF
+    cat > "$flags" <<'EOF'
+[missing-context c1 assumption]
+[plan-status p1 needs-user-input]
+EOF
+    render_check_report "$report" "$flags"
+    assert_line "$report" "## Diagnostics" "report includes diagnostics section"
+    assert_line "$report" "- Context missing: \"The draft makes a claim.\" relies on assumption, but that context is not known yet. Source: draft:1-1." "diagnostic uses source frame"
+    assert_line "$report" "## File map" "report includes file map"
+    echo "ok"
+    ;;
+  schema-test)
+    ensure_dirs
+    "$SHEN" \
+      "${SCHEMA_ARGS[@]}" \
+      -l "$ROOT/shen/fact-regression.shen" \
+      -l "$ROOT/shen/run-fact-regression.shen" \
+      > "$OUT/.shen-schema-regression-raw-output.txt"
+    capture_logicbox_output "$OUT/.shen-schema-regression-raw-output.txt" "$OUT/.shen-schema-regression-output.txt"
+    cat "$OUT/.shen-schema-regression-output.txt"
+    if grep -Fq -- "FAIL" "$OUT/.shen-schema-regression-output.txt"; then
+      exit 1
+    fi
+    ;;
+  schema-contract)
+    ensure_dirs
+    "$SHEN" \
+      "${SCHEMA_ARGS[@]}" \
+      -l "$ROOT/shen/run-prompt-contract.shen" \
+      > "$OUT/.shen-schema-contract-raw-output.txt"
+    capture_logicbox_output "$OUT/.shen-schema-contract-raw-output.txt" "$OUT/schema-contract.shen"
+    cat "$OUT/schema-contract.shen"
+    ;;
   test)
     ensure_dirs
     for model in "$ROOT"/tests/*-model.shen; do
       echo "${model:t}:"
       "$SHEN" \
         -l "$model" \
+        "${SCHEMA_ARGS[@]}" \
         -l "$ROOT/shen/rules.shen" \
         -l "$ROOT/shen/run.shen" \
         > "$OUT/.shen-test-raw-output.txt"
@@ -506,6 +877,10 @@ case "${1:-help}" in
     "$0" fuzz
     echo "rewrite-test:"
     "$0" rewrite-test
+    echo "report-smoke:"
+    "$0" report-smoke
+    echo "schema-test:"
+    "$0" schema-test
     ;;
   stress)
     ensure_dirs
@@ -513,6 +888,7 @@ case "${1:-help}" in
       echo "${model:t}:"
       "$SHEN" \
         -l "$model" \
+        "${SCHEMA_ARGS[@]}" \
         -l "$ROOT/shen/rules.shen" \
         -l "$ROOT/shen/run.shen" \
         > "$OUT/.shen-stress-raw-output.txt"
@@ -773,7 +1149,7 @@ EOF
     printf '%s\n' "$*" > "$WORK/draft.txt"
     cat > "$FACTS" <<'EOF'
 \\ AI fills this with candidate facts. Do not put derived flags here.
-\\ Run ./logicbox check after editing.
+\\ Run ./logicbox review after editing.
 
 (set *facts*
   [

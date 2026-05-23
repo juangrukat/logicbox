@@ -1,0 +1,6 @@
+[fact-warning w-long-text long-text predicate comment slot 2 length 314]
+[fact-warning w-long-text long-text predicate definition slot 2 length 295]
+[fact-warning w-suspicious suspicious-atom predicate term atom entity reason generic-placeholder]
+[fact-warning w-suspicious suspicious-atom predicate term atom entity reason generic-placeholder]
+[fact-warning w-long-text long-text predicate definition slot 2 length 293]
+[plan-status p1 ready-for-final-rewrite]

@@ -10,6 +10,14 @@
   [Flag | Rest] -> (do (output "~A~%" Flag)
                        (print-flags-rest Rest)))
 
+(define schema-gated-derived-flags
+  Facts -> (let Errors (schema-type-errors Facts)
+           (let Diagnostics (schema-diagnostics Facts)
+           (if (= Errors [])
+            (append Diagnostics
+                    (derived-flags (preflight-enriched-facts (schema-accepted-core-facts Facts))))
+            (append Diagnostics (schema-error-plan-statuses Facts))))))
+
 (output "LOGICBOX-BEGIN~%")
-(print-flags (derived-flags (preflight-enriched-facts (value *facts*))))
+(print-flags (schema-gated-derived-flags (value *facts*)))
 (output "LOGICBOX-END~%")

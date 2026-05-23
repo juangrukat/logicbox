@@ -1796,6 +1796,19 @@ function runShenSafetyFacts(facts, tempDir) {
   return captureLogicboxLines(result.stdout || "");
 }
 
+function shenSchemaArgs(root) {
+  return [
+    "-l",
+    path.join(root, "shen/fact-schema.shen"),
+    "-l",
+    path.join(root, "shen/fact-normalize.shen"),
+    "-l",
+    path.join(root, "shen/fact-provenance.shen"),
+    "-l",
+    path.join(root, "shen/fact-typecheck.shen"),
+  ];
+}
+
 function runShenCheckFacts(facts, tempDir) {
   const root = path.resolve(__dirname, "..");
   const shen = process.env.SHEN_SBCL || "/opt/homebrew/bin/shen-sbcl";
@@ -1805,7 +1818,7 @@ function runShenCheckFacts(facts, tempDir) {
 
   const result = childProcess.spawnSync(
     shen,
-    ["-l", factsPath, "-l", path.join(root, "shen/rules.shen"), "-l", path.join(root, "shen/run.shen")],
+    ["-l", factsPath, ...shenSchemaArgs(root), "-l", path.join(root, "shen/rules.shen"), "-l", path.join(root, "shen/run.shen")],
     { encoding: "utf8" },
   );
 

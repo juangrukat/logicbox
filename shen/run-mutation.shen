@@ -1,7 +1,12 @@
 \\ Runs only rewrite mutation checks and prints derived flags between markers.
 
 (define mutation-flags
-  Facts -> (mutation-flags-on (preflight-enriched-facts Facts)))
+  Facts -> (let Errors (schema-type-errors Facts)
+           (let Diagnostics (schema-diagnostics Facts)
+           (if (= Errors [])
+            (append Diagnostics
+                    (mutation-flags-on (preflight-enriched-facts (schema-accepted-core-facts Facts))))
+            Diagnostics))))
 
 (define mutation-flags-on
   Facts -> (append (collect-extraction-contract-violations Facts)

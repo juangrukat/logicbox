@@ -1,2 +1,2 @@
-[invalid-scope f1 planetary]
-[plan-status p1 needs-user-input]
+[fact-type-error e-slot enum predicate fact-scope slot 2 expected [local global bounded comparative section document conditional universal unknown underspecified unbounded unclear] got planetary atom planetary]
+[plan-status p1 translation-error]
