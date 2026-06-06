@@ -1,0 +1,3 @@
+[fact-type-error e-report-only report-only predicate missing-context namespace report fact [missing-context c1 feedback-is-reliable-enough]]
+[fact-type-error e-report-only report-only predicate clear-enough namespace report fact [clear-enough p1]]
+[plan-status p1 translation-error]

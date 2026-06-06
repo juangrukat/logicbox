@@ -1,7 +1,5 @@
 from pathlib import Path
 
-import pytest
-
 
 PRESERVED = (
     "shen/fact-schema.shen",
@@ -18,7 +16,6 @@ def test_preserved_engine_files_exist():
         assert Path(name).is_file(), name
 
 
-@pytest.mark.xfail(strict=True, reason="enabled in cleanup task")
 def test_legacy_orchestration_is_absent_after_cleanup():
     for name in ("scripts", "work", "output", "logicbox (skill)"):
         assert not Path(name).exists(), name

@@ -1,0 +1,6 @@
+[extraction-contract-violation better-outcomes]
+[stage-chain-too-short c1 2 3]
+[stage-restates-claim c1 s1 adjust-based-on-results adjust-based-on-results]
+[mechanism-restates-stage c1 s2 repeat-what-works repeat-what-works]
+[missing-stage-bridge c1 s1 s2]
+[plan-status p1 translation-error]

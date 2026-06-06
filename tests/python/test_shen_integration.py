@@ -57,6 +57,7 @@ def test_artifact_chain_is_loadable_and_source_is_unchanged(
 MODELS = (
     sorted((ROOT / "tests/gold").glob("*.shen"))
     + sorted((ROOT / "tests/edge").glob("*.shen"))
+    + sorted((ROOT / "tests").glob("stress-*-model.shen"))
 )
 
 
@@ -87,3 +88,46 @@ def test_preserved_fixture_output_matches(model, tmp_path):
     assert completed.returncode == 0, completed.stderr.decode()
     expected = model.with_suffix(".expected").read_bytes()
     assert (tmp_path / "actual.expected").read_bytes() == expected
+
+
+@pytest.mark.shen
+@pytest.mark.parametrize(
+    ("fixture", "case"),
+    [
+        ("stress-policy-graph.shen", "policy"),
+        ("stress-context-stage.shen", "context-stage"),
+    ],
+)
+def test_stress_artifacts_exercise_distinct_rule_families(
+    tmp_path, fixture, case
+):
+    runtime = real_shen()
+    source = ROOT / "tests/artifacts" / fixture
+    first = tmp_path / "first-findings.shen"
+    second = tmp_path / "second-findings.shen"
+
+    for destination in (first, second):
+        assert main([
+            "analyze", "--shen", str(runtime), "--input", str(source),
+            "--output", str(destination),
+        ]) == 0
+    assert first.read_bytes() == second.read_bytes()
+
+    case_file = tmp_path / "stress-case.shen"
+    case_file.write_text(
+        f"(set *stress-case* {case})\n",
+        encoding="ascii",
+    )
+    completed = subprocess.run(
+        [
+            str(runtime),
+            "-l", str(ROOT / "shen/fact-schema.shen"),
+            "-l", str(ROOT / "shen/artifact-protocol.shen"),
+            "-l", str(first),
+            "-l", str(case_file),
+            "-l", str(ROOT / "tests/shen/assert-stress-findings.shen"),
+        ],
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr.decode()

@@ -1,0 +1,8 @@
+A feedback system will improve performance because it collects results and
+changes policy. The argument assumes both that all users are experts and that
+most users are novices, even though those contexts are incompatible.
+
+The proposed causal chain has two stages: collecting data and changing policy.
+The draft does not explain how the collected data causes the policy change, and
+it does not identify the decision rule, actor, or threshold that bridges those
+stages.

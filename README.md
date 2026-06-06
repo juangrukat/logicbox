@@ -111,3 +111,28 @@ SHEN_SBCL="$SHEN_SBCL" python3 -m pytest -q
 
 The suite includes exact behavioral parity checks for the preserved gold and
 edge Shen fixtures.
+
+### Stress Corpus
+
+`tests/texts/` contains difficult prose drafts for the future AI extraction
+layer. Each draft has a paired complete artifact in `tests/artifacts/` so the
+Shen engine can be tested independently of an AI provider:
+
+```text
+tests/texts/dense-policy-argument.txt
+tests/artifacts/stress-policy-graph.shen
+
+tests/texts/context-and-stage-conflict.txt
+tests/artifacts/stress-context-stage.shen
+```
+
+The stress integration tests require deterministic output across repeated
+executions and use Shen assertions to verify findings from multiple rule
+families. Python only compares artifact bytes and process results.
+
+Run just the real-engine integration and stress cases:
+
+```sh
+SHEN_SBCL="$SHEN_SBCL" python3 -m pytest -q \
+  tests/python/test_shen_integration.py
+```

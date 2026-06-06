@@ -1,0 +1,32 @@
+(set *logicbox-artifact*
+  [logicbox-artifact
+    [kind source]
+    [protocol logicbox-artifact-v1]
+    [schema schema-v1]
+    [payload
+      [
+        [plan p-context]
+        [plan-source p-context stress-context]
+        [plan-goal p-context detect-context-conflict]
+        [context-known all-users-experts known]
+        [context-known most-users-novices known]
+        [context-incompatible all-users-experts most-users-novices]
+        [plan p-stage]
+        [plan-source p-stage stress-stage]
+        [plan-goal p-stage detect-missing-stage-bridge]
+        [plan-claim p-stage c1]
+        [term source known]
+        [term target known]
+        [claim c1 causal source target]
+        [mechanism c1 bridge]
+        [modality c1 possible]
+        [scope c1 conditional]
+        [stage-chain-min c1 2]
+        [stage s1 collect-data]
+        [stage-of s1 c1]
+        [stage-order s1 1]
+        [stage s2 policy-change]
+        [stage-of s2 c1]
+        [stage-order s2 2]
+        [stage-next c1 s1 s2]
+      ]]])
