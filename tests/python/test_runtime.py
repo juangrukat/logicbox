@@ -19,6 +19,17 @@ def test_explicit_runtime_wins(tmp_path, monkeypatch):
     assert discover_shen(explicit) == explicit.resolve()
 
 
+def test_invalid_explicit_runtime_does_not_fall_back(tmp_path, monkeypatch):
+    configured = _write_executable(tmp_path / "configured-shen", "#!/bin/sh\nexit 0\n")
+    path_runtime_dir = tmp_path / "bin"
+    path_runtime_dir.mkdir()
+    _write_executable(path_runtime_dir / "shen-sbcl", "#!/bin/sh\nexit 0\n")
+    monkeypatch.setenv("SHEN_SBCL", str(configured))
+    monkeypatch.setenv("PATH", str(path_runtime_dir))
+
+    assert discover_shen(tmp_path / "missing-explicit-shen") is None
+
+
 def test_environment_runtime_is_used(tmp_path, monkeypatch):
     executable = _write_executable(tmp_path / "shen-sbcl", "#!/bin/sh\nexit 0\n")
     monkeypatch.setenv("SHEN_SBCL", str(executable))
@@ -85,6 +96,21 @@ def test_zero_exit_without_sentinel_is_unhealthy(tmp_path):
         "#!/bin/sh\n"
         'test "$1" = "-l" || exit 20\n'
         "exit 0\n",
+    )
+
+    check = check_runtime(executable)
+
+    assert check.ok is False
+    assert "sentinel" in check.detail
+    assert check.remediation
+
+
+def test_echoing_probe_source_does_not_count_as_sentinel_execution(tmp_path):
+    executable = _write_executable(
+        tmp_path / "shen-sbcl",
+        "#!/bin/sh\n"
+        'test "$1" = "-l" || exit 20\n'
+        'cat "$2"\n',
     )
 
     check = check_runtime(executable)

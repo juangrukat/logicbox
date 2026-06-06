@@ -27,10 +27,14 @@ def _usable(path: Path) -> bool:
 
 
 def discover_shen(explicit: Path | None) -> Path | None:
-    candidates: list[Path] = []
     if explicit is not None:
-        candidates.append(explicit)
+        try:
+            resolved = explicit.expanduser().resolve()
+        except OSError:
+            return None
+        return resolved if _usable(resolved) else None
 
+    candidates: list[Path] = []
     configured = os.environ.get("SHEN_SBCL")
     if configured:
         candidates.append(Path(configured))
@@ -94,7 +98,9 @@ def check_runtime(runtime: Path | None) -> DoctorCheck:
             f"runtime probe exited with exit {result.returncode}: {runtime}",
             _RUNTIME_REMEDIATION,
         )
-    if _PROBE_SENTINEL not in result.stdout:
+    if not any(
+        line.strip() == _PROBE_SENTINEL for line in result.stdout.splitlines()
+    ):
         return DoctorCheck(
             "shen.runtime",
             False,
