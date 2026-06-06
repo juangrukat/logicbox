@@ -134,7 +134,145 @@ analysis/engine.stderr
 manifest.json
 ```
 
-### 5. Read The Results
+### 5. Understand The Review Folder
+
+The review folder is an audit bundle. It preserves what was submitted, what
+Shen accepted, what Shen found, and how the run was executed.
+
+It is not yet a polished human-readable report. The current release produces
+machine-oriented Shen artifacts. An AI or a future LogicBox interface must
+translate those findings into prose.
+
+A folder such as:
+
+```text
+validity-test-review/
+├── paper.txt
+├── source.shen
+└── run/
+    ├── input/
+    │   └── source.shen
+    ├── schema/
+    │   ├── accepted.shen
+    │   ├── diagnostics.shen
+    │   ├── engine.stdout
+    │   └── engine.stderr
+    ├── analysis/
+    │   ├── findings.shen
+    │   ├── engine.stdout
+    │   └── engine.stderr
+    └── manifest.json
+```
+
+should be read in this order:
+
+1. `paper.txt`: the original paper.
+2. `source.shen`: the AI's logical extraction of the paper.
+3. `run/schema/diagnostics.shen`: whether the extraction was valid.
+4. `run/analysis/findings.shen`: the structural issues Shen derived.
+5. `run/schema/accepted.shen`: the exact facts Shen accepted.
+6. `run/manifest.json`: hashes, file sizes, timing, and runtime information.
+7. `engine.stdout` and `engine.stderr`: debugging traces, usually not needed.
+
+`source.shen` and `run/input/source.shen` should contain the same artifact. The
+copy inside `run/input/` is frozen as part of the immutable run.
+
+#### How To Read Diagnostics
+
+The important part is the artifact's `payload`.
+
+```shen
+[kind diagnostics]
+[payload []]
+```
+
+An empty diagnostics payload means the extraction passed the Shen schema gate.
+It does not mean that the paper is logically sound. It means Shen could
+understand the submitted facts well enough to analyze them.
+
+A nonempty diagnostics payload may contain entries such as:
+
+```shen
+[fact-type-error ...]
+[fact-warning ...]
+[fact-suggestion ...]
+```
+
+These usually indicate a problem in the AI extraction or artifact format.
+Correct the extraction before interpreting the paper's logical findings.
+
+#### How To Read Findings
+
+`findings.shen` contains the conclusions produced by the rules engine. For
+example:
+
+```shen
+[missing-mechanism c2]
+[unclear-scope c3]
+[context-conflict ctx-lid-absent ctx-lid-present]
+[conclusion-stronger-than-ground g1 k1 possible certain]
+[stage-chain-too-short c1 2 3]
+[missing-stage-bridge c1 s1 s2]
+[scope-conflict f-global-handle f-local-handle global local]
+[plan-status p1 needs-user-input]
+```
+
+These mean:
+
+- `missing-mechanism c2`: claim `c2` states a causal relationship but does not
+  explain how the cause produces the result.
+- `unclear-scope c3`: claim `c3` does not say clearly when or where it applies.
+- `context-conflict A B`: the extraction treats two incompatible conditions as
+  simultaneously known.
+- `conclusion-stronger-than-ground`: the conclusion is stated more certainly
+  than its supporting ground permits.
+- `stage-chain-too-short`: the proposed causal explanation has fewer
+  intermediate stages than it claims to require.
+- `missing-stage-bridge`: two adjacent stages are listed without an explanation
+  connecting them.
+- `scope-conflict`: the same concept is used under incompatible scopes.
+- `plan-status ... needs-user-input`: unresolved structural questions remain.
+
+IDs such as `c2`, `g1`, and `k1` refer back to facts in `source.shen` and
+`accepted.shen`. For example:
+
+```shen
+[claim c2 causal furniture-watching sugar-dissolving]
+```
+
+allows `[missing-mechanism c2]` to be read as:
+
+> The paper says furniture watching causes sugar to dissolve, but it does not
+> supply a mechanism connecting those events.
+
+#### Example: `validity-test-review`
+
+The test of `validity-test.txt` produced:
+
+```shen
+[payload []]
+```
+
+in `schema/diagnostics.shen`, so the extraction was valid.
+
+Its `analysis/findings.shen` reported:
+
+- missing mechanisms for furniture watching causing sugar to dissolve and for
+  suspicion causing ownership;
+- unclear scope for the ownership claim;
+- conflicts between yesterday having happened and not having happened;
+- conflicts between the lid being absent and present;
+- conflicts between public and private ownership;
+- a conclusion stated as certain despite only possible support;
+- a causal chain with too few stages and no bridge;
+- incompatible global and local descriptions of the handle.
+
+The final status was `needs-user-input`. In an ordinary paper this means the
+writer or reviewer must clarify the unresolved claims. In this deliberately
+absurd test, the findings show that Shen preserved and detected the intended
+paradoxes rather than silently making them coherent.
+
+### 6. Read The Results
 
 Inspect the operational record:
 
@@ -157,6 +295,10 @@ The files mean:
 - `engine.stdout` and `engine.stderr`: exact process traces for diagnosis.
 - `manifest.json`: paths, hashes, sizes, timing, and exit status only.
 
+For normal use, begin with `diagnostics.shen` and `findings.shen`. Open
+`accepted.shen`, `manifest.json`, or the engine traces only when you need to
+audit or diagnose the run.
+
 Common findings identify missing context, unsupported conclusions, unclear
 scope, missing causal stages, unresolved objections, inconsistent modality, or
 unsafe rewrite mutations.
@@ -164,7 +306,7 @@ unsafe rewrite mutations.
 If diagnostics report a translation error, correct the AI extraction and run
 LogicBox again. Do not rewrite the paper merely to hide a bad extraction.
 
-### 6. Ask An AI To Explain Or Revise The Paper
+### 7. Ask An AI To Explain Or Revise The Paper
 
 Give the AI:
 
@@ -203,7 +345,7 @@ Save the result as:
 paper-review/revised-paper.txt
 ```
 
-### 7. Recheck The Revision
+### 8. Recheck The Revision
 
 Repeat the extraction step using `revised-paper.txt`, saving the new artifact as
 `revised-source.shen`, then run:
