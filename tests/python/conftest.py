@@ -20,7 +20,11 @@ def fake_shen(tmp_path: Path) -> Path:
         "  *emit-contract.shen*) output=contract.shen ;;\n"
         "  *) exit 9 ;;\n"
         "esac\n"
-        "cp input.shen \"$output\"\n"
+        "if test -f input.shen; then input=input.shen\n"
+        "elif test -f candidate.shen; then input=candidate.shen\n"
+        "else printf '(set *logicbox-artifact* [fake])\\n' > \"$output\"; input=\n"
+        "fi\n"
+        "test -z \"$input\" || cp \"$input\" \"$output\"\n"
         "printf 'engine stdout\\n'\n"
         "printf 'engine stderr\\n' >&2\n",
         encoding="utf-8",

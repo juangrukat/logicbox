@@ -15,6 +15,14 @@ from types import MappingProxyType
 
 from logicbox_cli.hashing import sha256_file
 
+ENGINE_ROOT = Path(__file__).resolve().parents[2] / "shen"
+SCHEMA_LOADS = (
+    ENGINE_ROOT / "fact-schema.shen",
+    ENGINE_ROOT / "fact-normalize.shen",
+    ENGINE_ROOT / "fact-provenance.shen",
+    ENGINE_ROOT / "fact-typecheck.shen",
+)
+
 
 @dataclass(frozen=True)
 class StageRequest:
@@ -369,4 +377,149 @@ def execute_stage(request: StageRequest) -> StageResult:
         stderr=stderr,
         output_hashes=output_hashes,
         output_sizes=output_sizes,
+    )
+
+
+def schema_requests(
+    runtime: Path,
+    source: Path,
+    accepted: Path,
+    diagnostics: Path,
+    timeout: float,
+    *,
+    replace: bool = False,
+) -> tuple[StageRequest, StageRequest]:
+    inputs = {"input.shen": source}
+    protocol = ENGINE_ROOT / "artifact-protocol.shen"
+    return (
+        StageRequest(
+            "schema-accepted",
+            runtime,
+            inputs,
+            (
+                Path("input.shen"),
+                *SCHEMA_LOADS,
+                protocol,
+                ENGINE_ROOT / "stages/emit-accepted.shen",
+            ),
+            {"accepted.shen": accepted},
+            timeout,
+            replace,
+        ),
+        StageRequest(
+            "schema-diagnostics",
+            runtime,
+            inputs,
+            (
+                Path("input.shen"),
+                *SCHEMA_LOADS,
+                protocol,
+                ENGINE_ROOT / "stages/emit-diagnostics.shen",
+            ),
+            {"diagnostics.shen": diagnostics},
+            timeout,
+            replace,
+        ),
+    )
+
+
+def analyze_request(
+    runtime: Path,
+    accepted: Path,
+    findings: Path,
+    timeout: float,
+    *,
+    replace: bool = False,
+) -> StageRequest:
+    return StageRequest(
+        "analyze",
+        runtime,
+        {"input.shen": accepted},
+        (
+            Path("input.shen"),
+            *SCHEMA_LOADS,
+            ENGINE_ROOT / "rules.shen",
+            ENGINE_ROOT / "artifact-protocol.shen",
+            ENGINE_ROOT / "stages/emit-findings.shen",
+        ),
+        {"findings.shen": findings},
+        timeout,
+        replace,
+    )
+
+
+def pipeline_findings_request(
+    runtime: Path,
+    source: Path,
+    findings: Path,
+    timeout: float,
+    *,
+    replace: bool = False,
+) -> StageRequest:
+    request = analyze_request(
+        runtime,
+        source,
+        findings,
+        timeout,
+        replace=replace,
+    )
+    return StageRequest(
+        "pipeline-findings",
+        request.runtime,
+        request.inputs,
+        request.load_paths,
+        request.outputs,
+        request.timeout_seconds,
+        request.replace,
+    )
+
+
+def compare_request(
+    runtime: Path,
+    source: Path,
+    candidate: Path,
+    mutation: Path,
+    timeout: float,
+    *,
+    replace: bool = False,
+) -> StageRequest:
+    return StageRequest(
+        "compare",
+        runtime,
+        {"source.shen": source, "candidate.shen": candidate},
+        (
+            Path("source.shen"),
+            ENGINE_ROOT / "artifact-protocol.shen",
+            ENGINE_ROOT / "stages/capture-source.shen",
+            Path("candidate.shen"),
+            ENGINE_ROOT / "stages/capture-candidate.shen",
+            *SCHEMA_LOADS,
+            ENGINE_ROOT / "rules.shen",
+            ENGINE_ROOT / "stages/emit-mutation.shen",
+        ),
+        {"mutation.shen": mutation},
+        timeout,
+        replace,
+    )
+
+
+def contract_request(
+    runtime: Path,
+    contract: Path,
+    timeout: float,
+    *,
+    replace: bool = False,
+) -> StageRequest:
+    return StageRequest(
+        "contract",
+        runtime,
+        {},
+        (
+            *SCHEMA_LOADS,
+            ENGINE_ROOT / "artifact-protocol.shen",
+            ENGINE_ROOT / "stages/emit-contract.shen",
+        ),
+        {"contract.shen": contract},
+        timeout,
+        replace,
     )

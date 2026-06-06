@@ -42,3 +42,87 @@ def test_doctor_failure_uses_stderr_without_traceback(monkeypatch, capsys):
     assert captured.err.startswith("shen.runtime\tfail\tshen-sbcl was not found\n")
     assert "Pass --shen PATH" in captured.err
     assert "Traceback" not in captured.err
+
+
+def test_schema_command_writes_both_artifacts(tmp_path, fake_shen, capsys):
+    source = tmp_path / "source.shen"
+    source.write_bytes(b"(set *logicbox-artifact* [source])\n")
+    accepted = tmp_path / "accepted.shen"
+    diagnostics = tmp_path / "diagnostics.shen"
+
+    assert main([
+        "schema", "--shen", str(fake_shen), "--input", str(source),
+        "--accepted", str(accepted), "--diagnostics", str(diagnostics),
+    ]) == 0
+
+    assert accepted.read_bytes() == source.read_bytes()
+    assert diagnostics.read_bytes() == source.read_bytes()
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+
+
+def test_analyze_compare_and_contract_commands(tmp_path, fake_shen):
+    source = tmp_path / "source.shen"
+    candidate = tmp_path / "candidate.shen"
+    source.write_bytes(b"(set *logicbox-artifact* [source])\n")
+    candidate.write_bytes(b"(set *logicbox-artifact* [candidate])\n")
+    findings = tmp_path / "findings.shen"
+    mutation = tmp_path / "mutation.shen"
+    contract = tmp_path / "contract.shen"
+
+    assert main([
+        "analyze", "--shen", str(fake_shen), "--input", str(source),
+        "--output", str(findings),
+    ]) == 0
+    assert main([
+        "compare", "--shen", str(fake_shen), "--source", str(source),
+        "--candidate", str(candidate), "--output", str(mutation),
+    ]) == 0
+    assert main([
+        "contract", "--shen", str(fake_shen), "--output", str(contract),
+    ]) == 0
+
+    assert findings.is_file()
+    assert mutation.read_bytes() == candidate.read_bytes()
+    assert contract.is_file()
+
+
+def test_existing_output_requires_replace(tmp_path, fake_shen, capsys):
+    source = tmp_path / "source.shen"
+    output = tmp_path / "findings.shen"
+    source.write_bytes(b"(set *logicbox-artifact* [source])\n")
+    output.write_bytes(b"keep\n")
+    args = [
+        "analyze", "--shen", str(fake_shen), "--input", str(source),
+        "--output", str(output),
+    ]
+
+    assert main(args) == 3
+    assert output.read_bytes() == b"keep\n"
+    assert "destination already exists" in capsys.readouterr().err
+    assert main([*args, "--replace"]) == 0
+    assert output.read_bytes() == source.read_bytes()
+
+
+def test_missing_input_is_filesystem_error(tmp_path, fake_shen, capsys):
+    assert main([
+        "analyze", "--shen", str(fake_shen),
+        "--input", str(tmp_path / "missing.shen"),
+        "--output", str(tmp_path / "findings.shen"),
+    ]) == 3
+    assert "No such file" in capsys.readouterr().err
+
+
+def test_trace_goes_only_to_stderr(tmp_path, fake_shen, capsys):
+    source = tmp_path / "source.shen"
+    source.write_bytes(b"(set *logicbox-artifact* [source])\n")
+
+    assert main([
+        "analyze", "--shen", str(fake_shen), "--input", str(source),
+        "--output", str(tmp_path / "findings.shen"), "--trace",
+    ]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "analyze\texit=0" in captured.err
+    assert "engine stdout" in captured.err
