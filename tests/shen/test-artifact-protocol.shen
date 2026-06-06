@@ -6,6 +6,11 @@
     (simple-error
       (make-string "~A expected ~A got ~A" Label Expected Actual)))
 
+(define roundtrip-text
+  -> (cn "quote: "
+       (cn (n->string 34)
+        (cn " slash: " (n->string 92)))))
+
 (assert-equal source
   (logicbox-field
     kind
@@ -42,24 +47,51 @@
     [kind findings]
     [protocol logicbox-artifact-v1]
     [schema schema-v1]
-    [payload [[comment c1 "quoted text"]]]]
+    [payload
+      [[comment c1 (roundtrip-text)]
+       [scalar-values 42 3.5 true false [] [nested value]]]]]
   (make-logicbox-artifact
     findings
     schema-v1
-    [[comment c1 "quoted text"]])
+    [[comment c1 (roundtrip-text)]
+     [scalar-values 42 3.5 true false [] [nested value]]])
   artifact-constructor)
+
+(assert-equal "missing LogicBox artifact field: missing"
+  (trap-error
+    (logicbox-field missing [])
+    (/. Error (error-to-string Error)))
+  missing-field-error)
+(assert-equal "malformed LogicBox artifact field: kind"
+  (trap-error
+    (logicbox-field kind [[kind source extra]])
+    (/. Error (error-to-string Error)))
+  malformed-field-error)
+(assert-equal "malformed LogicBox artifact field: kind"
+  (trap-error
+    (logicbox-field kind [[kind]])
+    (/. Error (error-to-string Error)))
+  short-field-error)
+(assert-equal "duplicate LogicBox artifact field: kind"
+  (trap-error
+    (logicbox-field kind [[kind source] [kind accepted]])
+    (/. Error (error-to-string Error)))
+  duplicate-field-error)
 
 (write-logicbox-artifact
   "roundtrip.shen"
   findings
   schema-v1
-  [[comment c1 "quoted text"]])
+  [[comment c1 (roundtrip-text)]
+   [scalar-values 42 3.5 true false [] [nested value]]])
 (set *logicbox-artifact* [])
 (load "roundtrip.shen")
 
 (assert-equal findings
   (logicbox-artifact-kind (value *logicbox-artifact*))
   roundtrip-kind)
-(assert-equal [[comment c1 "quoted text"]]
+(assert-equal
+  [[comment c1 (roundtrip-text)]
+   [scalar-values 42 3.5 true false [] [nested value]]]
   (logicbox-artifact-payload (value *logicbox-artifact*))
   roundtrip-payload)
