@@ -39,7 +39,7 @@ def request_for(
     runtime: Path,
     output: Path,
     *,
-    timeout: float = 1,
+    timeout: float = 5,
     load_paths: tuple[Path, ...] | None = None,
     outputs: dict[str, Path] | None = None,
     replace: bool = False,
