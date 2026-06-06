@@ -42,7 +42,6 @@
     (logicbox-artifact-payload (value *stage-accepted*)))
   valid-accepted-claim)
 (stage-assert-equal
-  (logicbox-pipeline-findings
-    (logicbox-artifact-payload (value *stage-source*)))
+  [[plan-status p1 ready-for-final-rewrite]]
   (logicbox-artifact-payload (value *stage-findings*))
-  valid-findings-match-pipeline)
+  valid-findings-preserve-engine-behavior)

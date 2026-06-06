@@ -50,6 +50,65 @@
   Artifact ->
     (logicbox-field payload (logicbox-artifact-fields Artifact)))
 
+(define logicbox-artifact-field-name?
+  kind -> true
+  protocol -> true
+  schema -> true
+  payload -> true
+  _ -> false)
+
+(define logicbox-validate-artifact-fields
+  [] -> true
+  [[Key _] | Rest] ->
+    (if (logicbox-artifact-field-name? Key)
+        (logicbox-validate-artifact-fields Rest)
+        (simple-error
+          (make-string "unknown LogicBox artifact field: ~A" Key)))
+  [Malformed | _] ->
+    (simple-error
+      (make-string "malformed LogicBox artifact field: ~A" Malformed))
+  Other ->
+    (simple-error
+      (make-string "invalid LogicBox artifact fields: ~A" Other)))
+
+(define logicbox-kind-allowed?
+  _ [] -> false
+  Kind [Kind | _] -> true
+  Kind [_ | Rest] -> (logicbox-kind-allowed? Kind Rest))
+
+(define logicbox-validate-artifact-values
+  Artifact Kind Protocol Schema _ AllowedKinds ->
+    (if (= Protocol logicbox-artifact-v1)
+        (if (schema-known-version? Schema)
+            (if (logicbox-kind-allowed? Kind AllowedKinds)
+                Artifact
+                (simple-error
+                  (make-string
+                    "invalid LogicBox artifact kind ~A; expected one of ~A"
+                    Kind
+                    AllowedKinds)))
+            (simple-error
+              (make-string
+                "unsupported LogicBox artifact schema: ~A"
+                Schema)))
+        (simple-error
+          (make-string
+            "unsupported LogicBox artifact protocol: ~A"
+            Protocol))))
+
+(define validate-logicbox-artifact
+  Artifact AllowedKinds ->
+    (let Fields (logicbox-artifact-fields Artifact)
+      (do
+        (logicbox-validate-artifact-fields Fields)
+        (logicbox-validate-artifact-values
+          Artifact
+          (logicbox-field kind Fields)
+          (logicbox-field protocol Fields)
+          (logicbox-field schema Fields)
+          (logicbox-field payload Fields)
+          AllowedKinds))))
+
 (define make-logicbox-artifact
   Kind Schema Payload ->
     [logicbox-artifact
