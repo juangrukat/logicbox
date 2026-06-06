@@ -2,7 +2,12 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
-SHEN=${SHEN_SBCL:-/Users/kat/.local/bin/shen-sbcl}
+SHEN=${SHEN_SBCL:-$(command -v shen-sbcl || true)}
+
+if [ -z "$SHEN" ] || [ ! -x "$SHEN" ]; then
+  echo "Shen runtime not found or not executable; set SHEN_SBCL or install shen-sbcl on PATH" >&2
+  exit 1
+fi
 
 run_rejected() {
   name=$1
