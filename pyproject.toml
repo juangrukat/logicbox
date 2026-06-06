@@ -17,6 +17,26 @@ logicbox = "logicbox_cli.cli:entrypoint"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.data-files]
+"share/logicbox/shen" = [
+  "shen/artifact-protocol.shen",
+  "shen/fact-normalize.shen",
+  "shen/fact-provenance.shen",
+  "shen/fact-regression.shen",
+  "shen/fact-schema.shen",
+  "shen/fact-typecheck.shen",
+  "shen/rules.shen",
+]
+"share/logicbox/shen/stages" = [
+  "shen/stages/capture-candidate.shen",
+  "shen/stages/capture-source.shen",
+  "shen/stages/emit-accepted.shen",
+  "shen/stages/emit-contract.shen",
+  "shen/stages/emit-diagnostics.shen",
+  "shen/stages/emit-findings.shen",
+  "shen/stages/emit-mutation.shen",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
 markers = [

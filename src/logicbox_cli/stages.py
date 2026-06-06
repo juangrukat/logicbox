@@ -5,6 +5,7 @@ import signal
 import shutil
 import stat
 import subprocess
+import sysconfig
 import tempfile
 import time
 from collections.abc import Mapping
@@ -15,7 +16,19 @@ from types import MappingProxyType
 
 from logicbox_cli.hashing import sha256_file
 
-ENGINE_ROOT = Path(__file__).resolve().parents[2] / "shen"
+
+def resolve_engine_root() -> Path:
+    candidates = (
+        Path(__file__).resolve().parents[2] / "shen",
+        Path(sysconfig.get_path("data")) / "share/logicbox/shen",
+    )
+    for candidate in candidates:
+        if (candidate / "fact-schema.shen").is_file():
+            return candidate
+    return candidates[0]
+
+
+ENGINE_ROOT = resolve_engine_root()
 SCHEMA_LOADS = (
     ENGINE_ROOT / "fact-schema.shen",
     ENGINE_ROOT / "fact-normalize.shen",

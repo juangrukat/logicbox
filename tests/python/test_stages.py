@@ -17,10 +17,15 @@ from logicbox_cli.stages import (
     StageRequest,
     StageResult,
     execute_stage,
+    resolve_engine_root,
 )
 
 
 OPAQUE_BYTES = b'(set *logicbox-artifact* ["quoted \\"bytes\\""  \xff])\n'
+
+
+def test_engine_root_contains_authoritative_schema():
+    assert (resolve_engine_root() / "fact-schema.shen").is_file()
 
 
 def make_script(path: Path, body: str) -> Path:
