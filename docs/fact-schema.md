@@ -13,15 +13,47 @@ The gate does not decide whether the source was interpreted correctly. It only
 checks that emitted facts are well shaped, typed, namespaced, versioned, and
 auditable enough for the existing rules to consume.
 
+## Artifact Envelope
+
+Every logical interchange file is a complete Shen assignment:
+
+```shen
+(set *logicbox-artifact*
+  [logicbox-artifact
+    [kind source]
+    [protocol logicbox-artifact-v1]
+    [schema schema-v1]
+    [payload
+      [
+        [plan p1]
+        [claim c1 causal source target]
+      ]]])
+```
+
+The envelope fields are strict and unique. Shen rejects missing, duplicate,
+unknown, or malformed fields and unsupported protocol or schema values.
+
+Artifact kinds:
+
+- `source`: facts supplied to the schema and full-pipeline stages.
+- `accepted`: normalized, schema-accepted core facts.
+- `diagnostics`: schema errors, warnings, suggestions, and normalizations.
+- `findings`: schema-gated semantic findings produced by the rules engine.
+- `mutation`: findings comparing accepted source and candidate artifacts.
+- `contract`: the current registry-derived extraction contract.
+
+Only Shen reads or writes these payloads. Python copies and hashes the files as
+opaque bytes and records operational metadata separately.
+
 ## Pipeline
 
 ```text
-raw facts
+complete source artifact
 -> normalization pass
 -> schema gate / typechecker
 -> accepted normalized core facts
 -> existing Shen semantic kernel
--> report facts and source-facing diagnostics
+-> diagnostics and findings artifacts
 ```
 
 If hard schema errors exist, the kernel is not run for that input. This keeps

@@ -1,5 +1,13 @@
 .DS_Store
-output/.shen-*
-output/.preflight-*
+.clj-kondo/
+.lsp/
+.superpowers/
+.pytest_cache/
+__pycache__/
+*.py[cod]
 *.tmp
 *~
+runs/
+dist/
+build/
+*.egg-info/
