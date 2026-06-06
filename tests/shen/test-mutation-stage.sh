@@ -19,6 +19,7 @@ ASSERT_MUTATION="$ROOT/tests/shen/assert-mutation-artifact.shen"
 ASSERT_STATE="$ROOT/tests/shen/assert-mutation-stage-state.shen"
 ASSERT_DIAGNOSTICS="$ROOT/tests/shen/assert-mutation-diagnostics.shen"
 INVALID_CANDIDATE="$ROOT/tests/shen/mutation-invalid-candidate.shen"
+NO_ASSIGNMENT="$ROOT/tests/shen/no-artifact-assignment.shen"
 INVALID="$ROOT/tests/shen/invalid-artifacts"
 
 run_engine() {
@@ -136,3 +137,5 @@ run_rejected source-duplicate-field "$INVALID/duplicate-kind.shen" "$CANDIDATE"
 run_rejected candidate-duplicate-field "$SOURCE" "$INVALID/duplicate-kind.shen"
 run_rejected source-missing-payload "$INVALID/missing-payload.shen" "$CANDIDATE"
 run_rejected candidate-missing-payload "$SOURCE" "$INVALID/missing-payload.shen"
+run_rejected source-no-assignment "$NO_ASSIGNMENT" "$CANDIDATE"
+run_rejected candidate-no-assignment "$SOURCE" "$NO_ASSIGNMENT"

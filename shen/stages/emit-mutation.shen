@@ -12,7 +12,7 @@
                 SourceSchema
                 CandidateSchema))))))
 
-(define mutation-flags-on
+(define logicbox-mutation-flags-on
   Facts ->
     (append (collect-extraction-contract-violations Facts)
       (append (collect-decomposition-needed Facts)
@@ -27,7 +27,7 @@
   Facts ->
     (let Errors (schema-type-errors Facts)
       (if (= Errors [])
-          (mutation-flags-on
+          (logicbox-mutation-flags-on
             (preflight-enriched-facts
               (schema-accepted-core-facts Facts)))
           (schema-diagnostics Facts))))
