@@ -126,3 +126,26 @@ def test_trace_goes_only_to_stderr(tmp_path, fake_shen, capsys):
     assert captured.out == ""
     assert "analyze\texit=0" in captured.err
     assert "engine stdout" in captured.err
+
+
+def test_run_and_inspect_use_operational_manifest(
+    tmp_path, fake_shen, capsys
+):
+    source = tmp_path / "source.shen"
+    source.write_bytes(b"(set *logicbox-artifact* [source])\n")
+    root = tmp_path / "runs"
+
+    assert main([
+        "run", "--shen", str(fake_shen), "--input", str(source),
+        "--run-dir", str(root),
+    ]) == 0
+    run_output = capsys.readouterr()
+    run_dir = root / run_output.out.strip().split("/")[-1]
+    assert run_dir.is_dir()
+    assert run_output.err == ""
+
+    assert main(["inspect", "--run-dir", str(run_dir)]) == 0
+    inspect_output = capsys.readouterr()
+    assert '"format": "logicbox-run-v1"' in inspect_output.out
+    assert "payload" not in inspect_output.out
+    assert inspect_output.err == ""

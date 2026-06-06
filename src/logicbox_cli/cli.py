@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -8,7 +9,9 @@ from pathlib import Path
 
 from logicbox_cli import __version__
 from logicbox_cli.errors import ExitCode
+from logicbox_cli.manifest import read_manifest
 from logicbox_cli.runtime import check_runtime, discover_shen
+from logicbox_cli.runs import create_run
 from logicbox_cli.stages import (
     StageRequest,
     analyze_request,
@@ -51,6 +54,13 @@ def build_parser() -> argparse.ArgumentParser:
     contract = subcommands.add_parser("contract")
     _add_stage_options(contract)
     contract.add_argument("--output", type=Path, required=True)
+    run = subcommands.add_parser("run")
+    run.add_argument("--shen", type=Path)
+    run.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
+    run.add_argument("--input", type=Path, required=True)
+    run.add_argument("--run-dir", type=Path, required=True)
+    inspect = subcommands.add_parser("inspect")
+    inspect.add_argument("--run-dir", type=Path, required=True)
     return parser
 
 
@@ -120,12 +130,36 @@ def main(argv: Sequence[str] | None = None) -> int:
         if check.remediation:
             print(check.remediation, file=sys.stderr)
         return int(ExitCode.OK if check.ok else ExitCode.RUNTIME)
+    if args.command == "inspect":
+        try:
+            manifest = read_manifest(args.run_dir / "manifest.json")
+        except (OSError, ValueError, json.JSONDecodeError) as error:
+            print(str(error), file=sys.stderr)
+            return int(ExitCode.FILESYSTEM)
+        print(json.dumps(manifest, indent=2, sort_keys=True))
+        return int(ExitCode.OK)
     runtime = _stage_runtime(args.shen)
     if runtime is None:
         return int(ExitCode.RUNTIME)
     if args.timeout <= 0:
         print("--timeout must be greater than zero", file=sys.stderr)
         return int(ExitCode.USAGE)
+    if args.command == "run":
+        try:
+            run_dir = create_run(
+                args.input,
+                args.run_dir,
+                runtime,
+                args.timeout,
+            )
+        except (FileNotFoundError, FileExistsError, IsADirectoryError, PermissionError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return int(ExitCode.FILESYSTEM)
+        except (subprocess.TimeoutExpired, RuntimeError, OSError) as error:
+            print(str(error), file=sys.stderr)
+            return int(ExitCode.STAGE)
+        print(run_dir)
+        return int(ExitCode.OK)
     if args.command == "schema":
         requests = schema_requests(
             runtime,
