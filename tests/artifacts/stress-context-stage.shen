@@ -8,6 +8,8 @@
         [plan p-context]
         [plan-source p-context stress-context]
         [plan-goal p-context detect-context-conflict]
+        [term all-users-experts context]
+        [term most-users-novices context]
         [context-known all-users-experts known]
         [context-known most-users-novices known]
         [context-incompatible all-users-experts most-users-novices]

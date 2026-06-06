@@ -39,6 +39,7 @@
 
 (define id-compatible?
   any-id Actual -> true
+  entity-id context-id -> true
   core-id adapter-id -> false
   core-id report-id -> false
   core-id unknown -> true
