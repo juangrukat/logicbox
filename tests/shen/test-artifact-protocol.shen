@@ -95,3 +95,7 @@
    [scalar-values 42 3.5 true false [] [nested value]]]
   (logicbox-artifact-payload (value *logicbox-artifact*))
   roundtrip-payload)
+
+(trap-error
+  (delete-file "roundtrip.shen")
+  (/. Error cleanup-unavailable))
