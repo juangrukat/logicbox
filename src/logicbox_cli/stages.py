@@ -65,6 +65,11 @@ class _Promotion:
     temporary: Path | None = None
     backup: Path | None = None
     existed: bool = False
+    promoted_identity: tuple[int, int] | None = None
+
+
+class RollbackConflictError(RuntimeError):
+    """Raised when another writer replaces an output during rollback."""
 
 
 def _stage_path(stage_dir: Path, name: str) -> Path:
@@ -166,10 +171,19 @@ def _cleanup(paths: list[Path]) -> None:
         path.unlink(missing_ok=True)
 
 
+def _file_identity(path: Path) -> tuple[int, int] | None:
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return None
+    return metadata.st_dev, metadata.st_ino
+
+
 def _promote_outputs(promotions: list[_Promotion], replace: bool) -> None:
     parents = {item.destination.parent for item in promotions}
     promoted: list[_Promotion] = []
     rollback_failed: list[Path] = []
+    rollback_conflicts: list[_Promotion] = []
     committed = False
 
     try:
@@ -192,6 +206,7 @@ def _promote_outputs(promotions: list[_Promotion], replace: bool) -> None:
 
         for item in promotions:
             assert item.temporary is not None
+            item.promoted_identity = _file_identity(item.temporary)
             if replace:
                 os.replace(item.temporary, item.destination)
                 item.temporary = None
@@ -208,8 +223,13 @@ def _promote_outputs(promotions: list[_Promotion], replace: bool) -> None:
 
         _fsync_directories(parents)
         committed = True
-    except BaseException:
+    except BaseException as error:
         for item in reversed(promoted):
+            if _file_identity(item.destination) != item.promoted_identity:
+                rollback_conflicts.append(item)
+                if item.backup is not None:
+                    rollback_failed.append(item.backup)
+                continue
             try:
                 if item.existed:
                     assert item.backup is not None
@@ -221,6 +241,21 @@ def _promote_outputs(promotions: list[_Promotion], replace: bool) -> None:
                 if item.backup is not None:
                     rollback_failed.append(item.backup)
         _fsync_directories(parents)
+        if rollback_conflicts:
+            details = ", ".join(
+                (
+                    f"{item.destination}"
+                    + (
+                        f" (original retained at {item.backup})"
+                        if item.backup is not None
+                        else ""
+                    )
+                )
+                for item in rollback_conflicts
+            )
+            raise RollbackConflictError(
+                f"rollback conflict: destination changed by another writer: {details}"
+            ) from error
         raise
     finally:
         temporary_paths = [

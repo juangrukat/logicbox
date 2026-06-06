@@ -12,7 +12,12 @@ from types import MappingProxyType
 import pytest
 
 from logicbox_cli.hashing import sha256_file
-from logicbox_cli.stages import StageRequest, StageResult, execute_stage
+from logicbox_cli.stages import (
+    RollbackConflictError,
+    StageRequest,
+    StageResult,
+    execute_stage,
+)
 
 
 OPAQUE_BYTES = b'(set *logicbox-artifact* ["quoted \\"bytes\\""  \xff])\n'
@@ -386,6 +391,63 @@ def test_multi_output_replace_rolls_back_after_second_replace_fails(
     assert diagnostics.read_bytes() == b"old-diagnostics"
     assert not list(tmp_path.glob(".*.tmp"))
     assert not list(tmp_path.glob(".*.bak"))
+
+
+def test_rollback_preserves_destination_replaced_by_another_writer(
+    tmp_path, monkeypatch
+):
+    runtime = make_script(
+        tmp_path / "shen",
+        "printf new-accepted > accepted.shen\n"
+        "printf new-diagnostics > diagnostics.shen\n",
+    )
+    accepted = tmp_path / "accepted-result.shen"
+    diagnostics = tmp_path / "diagnostics-result.shen"
+    accepted.write_bytes(b"old-accepted")
+    diagnostics.write_bytes(b"old-diagnostics")
+    foreign = tmp_path / "foreign-result.shen"
+    foreign.write_bytes(b"foreign-accepted")
+    outputs = {
+        "accepted.shen": accepted,
+        "diagnostics.shen": diagnostics,
+    }
+    real_replace = os.replace
+    promotion_count = 0
+
+    def replace_first_output_then_fail(source, destination):
+        nonlocal promotion_count
+        if str(source).endswith(".tmp"):
+            promotion_count += 1
+            if promotion_count == 1:
+                result = real_replace(source, destination)
+                real_replace(foreign, accepted)
+                return result
+            if promotion_count == 2:
+                raise OSError("injected second promotion failure")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(
+        "logicbox_cli.stages.os.replace",
+        replace_first_output_then_fail,
+    )
+
+    with pytest.raises(RollbackConflictError, match="rollback conflict"):
+        execute_stage(
+            request_for(
+                tmp_path,
+                runtime,
+                accepted,
+                outputs=outputs,
+                replace=True,
+            )
+        )
+
+    assert accepted.read_bytes() == b"foreign-accepted"
+    assert diagnostics.read_bytes() == b"old-diagnostics"
+    retained_backups = list(tmp_path.glob(".accepted-result.shen.*.bak"))
+    assert len(retained_backups) == 1
+    assert retained_backups[0].read_bytes() == b"old-accepted"
+    assert not list(tmp_path.glob(".*.tmp"))
 
 
 def test_promotion_fsyncs_files_and_destination_directory(tmp_path, monkeypatch):
