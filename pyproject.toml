@@ -19,3 +19,6 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
+markers = [
+  "shen: requires a real SHEN_SBCL runtime",
+]
